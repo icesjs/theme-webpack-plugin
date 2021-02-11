@@ -1,17 +1,30 @@
-import type { AcceptedPlugin, SourceMap } from 'postcss'
-import type { AtImportOptions } from 'postcss-import'
-import atImport from 'postcss-import'
 import * as fs from 'fs'
 import * as path from 'path'
-import { resolveStyle } from './resolve'
-
-type LoaderContext = import('webpack').loader.LoaderContext
+import type { SourceMap } from 'postcss'
+import { parseQuery } from 'loader-utils'
 
 // 获取一个token，非作为ID，仅用于标记theme文件请求
 export function getToken(length: number = 16) {
   return Buffer.from(Buffer.from(`${Date.now()}`).toString('base64'))
     .toString('hex')
     .substr(0, Math.max(6, length))
+}
+
+// 解析查询参数为一个对象
+export function getQueryObject(resourceQuery: string) {
+  if (resourceQuery && resourceQuery.startsWith('?')) {
+    return parseQuery(resourceQuery)
+  }
+  return {}
+}
+
+// 判断一个文件是否在某些根路径下
+export function containFile(roots: string | string[], file: string) {
+  if (!Array.isArray(roots)) {
+    roots = [roots]
+  }
+  file = file.replace(/\\/g, '/').toLowerCase()
+  return roots.some((root) => file.startsWith(root.replace(/\\/g, '/').toLowerCase()))
 }
 
 // 判断是不是样式文件
@@ -66,38 +79,6 @@ export function getValidSyntax(syntax: any) {
     syntax = 'css'
   }
   return syntax as 'scss' | 'sass' | 'less' | 'css'
-}
-
-// 获取通用的插件
-export function getCommonPlugins(
-  loaderContext: LoaderContext,
-  syntax: string,
-  cssModules: boolean,
-  importOptions?: AtImportOptions | null
-) {
-  const { rootContext, resolve } = loaderContext
-  //
-  const plugins = [
-    atImport(
-      Object.assign(
-        {
-          root: rootContext,
-          // 使用webpack的缓存文件系统读取文件
-          load: (filename: string) => readFile(filename, loaderContext.fs || fs),
-          // 这里resolve要使用webpack的resolve模块
-          // webpack可能配置了resolve别名等
-          resolve: (id: string, basedir: string) => resolveStyle(resolve, id, syntax, basedir),
-        },
-        importOptions
-      )
-    ),
-  ] as AcceptedPlugin[]
-  //
-  if (cssModules) {
-    // cssModules 语法支持
-    plugins.push(require('postcss-modules')())
-  }
-  return plugins
 }
 
 // 读取文件内容

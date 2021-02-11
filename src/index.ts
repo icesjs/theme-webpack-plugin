@@ -1,19 +1,19 @@
 import { Compiler, Plugin as WebpackPlugin } from 'webpack'
-import MiniCssExtractPlugin from './lib/MiniCssExtractPlugin'
 import Plugin, { PluginOptions } from './Plugin'
 
+// 使用单例
 let themePlugin: Plugin
 class ThemeWebpackPlugin implements WebpackPlugin {
-  static readonly MiniCssExtractPlugin = MiniCssExtractPlugin
-  private readonly themePlugin: Plugin
   constructor(options?: PluginOptions) {
     if (!themePlugin) {
       themePlugin = new Plugin(options)
     }
-    this.themePlugin = themePlugin
   }
   apply(compiler: Compiler) {
-    return this.themePlugin.apply(compiler)
+    if (themePlugin) {
+      return themePlugin.apply(compiler)
+    }
+    throw new Error('Illegal call')
   }
 }
 

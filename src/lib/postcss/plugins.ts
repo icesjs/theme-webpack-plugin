@@ -3,8 +3,8 @@ import {
   determineCanUseAsThemeVarsByValue,
   ExtractVarsPluginOptions,
   getTopScopeVariables,
-  makeVariableIdent,
   pluginFactory,
+  toVarsDict,
 } from './tools'
 import {
   addTitleComment,
@@ -49,11 +49,11 @@ export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
       // 如果现在就进行解析，则如果本地变量引用了从其他文件导入的变量，则会引用失败
       const context = getTopScopeVariables(root, regExps, null, false)
       for (const [varName, { originalValue }] of context) {
-        // 这里当前值没有作解析处理，期待在extractVariablesPlugin里面进行
-        // 得等到导入文件解析完成后，再进行解析
         setVarsMessage({
           originalName: varName,
           originalValue,
+          // 这里当前值没有作解析处理，期待在extractVariablesPlugin里面进行
+          // 得等到导入文件解析完成后，再进行解析
           value: originalValue,
           helper,
           type: 'theme-context',
@@ -82,9 +82,7 @@ export function extractVariablesPlugin(options: ExtractVarsPluginOptions) {
           const { value, dependencies } = parsedVariable
           // 这里还无法获取主题中的变量声明
           // 更新消息字段，将依赖信息添加进去
-          // 这里清除自身依赖
-          dependencies.delete(msg.originalName)
-          msg.dependencies = [...dependencies].map((name) => makeVariableIdent(name))
+          msg.dependencies = dependencies
           msg.value = value
           continue
         }
@@ -104,15 +102,14 @@ export function extractTopScopeVarsPlugin(options: ExtractVarsPluginOptions) {
   return pluginFactory(options, ({ regExps, parseValue = true }) => ({
     OnceExit: async (root, helper) => {
       for (const vars of getTopScopeVariables(root, regExps, null, parseValue).values()) {
-        const { name, value, originalValue, dependencies, isRootDecl } = vars
-        dependencies.delete(name)
+        const { originalName, value, originalValue, dependencies, isRootDecl } = vars
         setVarsMessage({
-          originalName: name,
+          originalName,
           originalValue,
           value,
           helper,
           type: isRootDecl ? 'theme-root-vars' : 'theme-vars',
-          dependencies: [...dependencies].map((name) => makeVariableIdent(name)),
+          dependencies,
         })
       }
     },
@@ -130,7 +127,6 @@ export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
       let node: Rule | Comment | null = null
       if (themeVars) {
         node = createVarsRootRuleNode({
-          // 这里themeVars数据映射的值，需要是原始值
           properties: themeVars,
           syntax,
           regExps,
@@ -141,20 +137,11 @@ export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
         root.walkDecls(
           getDeclProcessor(onlyColor, syntax, { variables, context, references }, regExps, helper)
         )
-        //
-        const dataMap = new Map<string, string>()
-        for (const { name, originalValue } of getVarsMessages(
-          helper.result.messages,
-          'theme-vars'
-        )) {
-          // 这里取原始值作为变量值写入:root自定义属性变量
-          // 其真实值将由其他loader来处理（比如 sass-loader）
-          dataMap.set(name, originalValue)
-        }
+
         // 这里仅生成变量声明注释，方便调试
         // 实际的变量由Theme模块生成并动态插入到页面中
         node = createVarsRootRuleNode({
-          properties: dataMap,
+          properties: toVarsDict(getVarsMessages(helper.result.messages, 'theme-vars'), false)!,
           asComment: true, // 以注释形式插入
           syntax,
           regExps,

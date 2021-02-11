@@ -1,6 +1,7 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { getContextFromFile, selfContext } from './selfContext'
+import { containFile, isStylesheet } from './utils'
 
 type Module = NodeJS.Module
 type LoaderContext = import('webpack').loader.LoaderContext
@@ -44,7 +45,7 @@ export async function resolveStyle(
       return await new Promise((resolve, reject) => {
         resolver(context, tar, (err, result) => (err ? reject(err) : resolve(result)))
       }).then((res) => {
-        if (!/\.(?:css|s[ac]ss|less)$/i.test(`${res}`)) {
+        if (!isStylesheet(`${res}`)) {
           return Promise.reject(new Error('Not a supported css file'))
         }
         return res as string
@@ -97,16 +98,37 @@ export function getModuleFromCache(name: string) {
   return modules
 }
 
+export function isFromModule(name: string, file: string) {
+  const context = getContextFromFile(file)
+  if (context) {
+    try {
+      return require(path.join(context, 'package.json')).name === name
+    } catch (e) {
+      return false
+    }
+  }
+  return false
+}
+
+export function resolveCachedModulePath(name: string, paths = [process.cwd()]) {
+  for (const [id] of getModuleFromCache(name)) {
+    if (containFile(paths, id)) {
+      return id
+    }
+  }
+  return ''
+}
+
 export function resolveModulePath(name: string, paths = [process.cwd()]) {
   try {
     return require.resolve(name, { paths })
-  } catch (e) {
-    const modules = getModuleFromCache(name)
-    if (modules.size) {
-      return [...modules.keys()][0]
+  } catch (err) {
+    const cachedModulePath = resolveCachedModulePath(name, paths)
+    if (cachedModulePath) {
+      return cachedModulePath
     }
+    throw err
   }
-  throwModuleNotFoundError(name, paths)
 }
 
 export function resolveModule(name: string, paths?: string[]) {

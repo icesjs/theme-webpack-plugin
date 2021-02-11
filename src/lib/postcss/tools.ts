@@ -1,38 +1,39 @@
 import { getHashDigest } from 'loader-utils'
-import { Declaration, Message, Plugin, Root, Rule, Syntax } from 'postcss'
+import { Declaration, Plugin, Root, Rule, Syntax } from 'postcss'
 import valueParser from 'postcss-value-parser'
 import { isColorValue } from '../colors'
 
 export const pluginName = 'postcss-extract-theme-vars'
 
-export interface ThemeVarsMessage extends Message {
+export interface ThemeVarsMessage {
   plugin: typeof pluginName
   type: 'theme-vars' | 'theme-root-vars' | 'theme-context'
-  name: string
+  ident: string
   originalName: string
   value: string
   originalValue: string
-  dependencies?: string[]
+  dependencies?: Set<string> // 消息里依赖列表里的值是ident值
 }
 
-export type ThemePropertyMatcher = ReturnType<typeof getVarPropertyRegExps>
+export type ThemePropertyMatcher = readonly [RegExp, RegExp, RegExp]
 
-export type NotNullVariablesContainer = {
-  context: Map<string, string>
-  variables: Map<string, string>
-  references: Map<string, RefVars>
-}
-
-export type DeclValueProcessor = (
-  value: string,
-  isRootDecl: boolean,
-  processor: DeclValueProcessor
-) => string
+// name是原来的名称，
+export type VarsDict = Map<
+  string,
+  {
+    ident: string
+    originalName: string
+    value: string
+    originalValue: string
+    dependencies: Set<string>
+    isTheme: boolean
+  }
+>
 
 export interface ThemeLoaderData {
-  themeLoaderThemeData?: { [p: string]: string }
-  themeLoaderContextData?: { [p: string]: string }
-  themeLoaderVariablesData?: { [p: string]: string }
+  themeMessages?: ThemeVarsMessage[]
+  contextMessages?: ThemeVarsMessage[]
+  variablesMessages?: ThemeVarsMessage[]
 }
 
 export interface ExtractVarsPluginOptions extends ThemeLoaderData {
@@ -43,19 +44,20 @@ export interface ExtractVarsPluginOptions extends ThemeLoaderData {
   messages?: ThemeVarsMessage[]
 }
 
-type RefVars = {
-  value: string
-  name: string
+export type RefVars = {
+  ident: string
   originalName: string
+  value: string
   originalValue: string
-  dependencies: string[]
+  dependencies: Set<string>
 }
 
 type VariablesContext = Map<
   string,
   {
-    name: string
+    ident: string
     value: string
+    originalName: string
     originalValue: string
     isRootDecl: boolean
     dependencies: Set<string>
@@ -63,9 +65,9 @@ type VariablesContext = Map<
 >
 
 type VariablesContainer = {
-  themeVars: Map<string, string> | null
-  context: Map<string, string> | null
-  variables: Map<string, string> | null
+  themeVars: VarsDict | null
+  context: VarsDict | null
+  variables: VarsDict | null
   references: Map<string, RefVars>
 }
 
@@ -79,14 +81,9 @@ export function pluginFactory(
   options: ExtractVarsPluginOptions,
   createPlugin: (context: PluginContext) => Omit<Plugin, 'postcssPlugin'>
 ) {
-  const {
-    syntax,
-    onlyColor,
-    themeLoaderThemeData,
-    themeLoaderContextData,
-    themeLoaderVariablesData,
-    ...rest
-  } = options
+  const { syntax, onlyColor, themeMessages, contextMessages, variablesMessages, ...rest } = options
+  const contextDict = toVarsDict(contextMessages || null, false)
+  const variablesDict = toVarsDict(variablesMessages || null, false)
   return {
     ...createPlugin({
       ...rest,
@@ -94,10 +91,10 @@ export function pluginFactory(
       regExps: getVarPropertyRegExps(syntax),
       onlyColor: Boolean(onlyColor),
       vars: {
-        themeVars: dataToVarsMap(themeLoaderThemeData),
-        context: dataToVarsMap(themeLoaderContextData),
-        variables: dataToVarsMap(themeLoaderVariablesData),
-        references: getReferences(themeLoaderVariablesData),
+        context: contextDict,
+        variables: variablesDict,
+        themeVars: toVarsDict(themeMessages || null, true),
+        references: getReferenceVars(contextDict, variablesDict),
       },
     }),
     postcssPlugin: pluginName,
@@ -118,8 +115,8 @@ export function makeVariableIdent(name: string) {
 export function determineCanExtractToRootDeclByIdent(
   ident: string,
   onlyColor: boolean,
-  context: Map<string, string>,
-  variables: Map<string, string>
+  context: VarsDict,
+  variables: VarsDict
 ) {
   if (context.has(ident) || !variables.has(ident)) {
     // 当前文件包含这个变量声明，则认为是本地变量，不作主题变量处理
@@ -127,7 +124,8 @@ export function determineCanExtractToRootDeclByIdent(
     return false
   }
   if (onlyColor) {
-    const value = variables.get(ident)
+    // 这里的value是解析后的值
+    const { value } = variables.get(ident)!
     // 节点是值解析的word类型，直接判断其值即可
     if (!value || !isColorValue(value)) {
       return false
@@ -179,7 +177,8 @@ export function getTopScopeVariables(
       if (regExps[1].test(node.prop) && filter(node, false)) {
         const dependencies = new Set<string>()
         variables.set(node.prop, {
-          name: node.prop,
+          ident: makeVariableIdent(node.prop),
+          originalName: node.prop,
           value: node.value,
           originalValue: node.value,
           isRootDecl: false,
@@ -192,7 +191,8 @@ export function getTopScopeVariables(
         if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
           const dependencies = new Set<string>()
           variables.set(rNode.prop, {
-            name: rNode.prop,
+            ident: makeVariableIdent(rNode.prop),
+            originalName: rNode.prop,
             value: rNode.value,
             originalValue: rNode.value,
             isRootDecl: true,
@@ -233,33 +233,45 @@ export function fixScssCustomizePropertyBug(
   return changed ? valueParser.stringify(parsed.nodes) : value
 }
 
-// 设置引用类型变量
-export function setRefVars(
-  variables: ThemeLoaderData['themeLoaderVariablesData'],
-  message: ThemeVarsMessage
-) {
-  const data = variables as object
-  const prop = Symbol.for('RefVars')
-  if (!data.hasOwnProperty(prop)) {
-    Object.defineProperty(data, prop, {
-      value: new Map<string, RefVars>(),
+// 将变量消息转换为变量字典
+export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean) {
+  if (!messages) {
+    return null
+  }
+  const vars: VarsDict = new Map<
+    string,
+    {
+      ident: string
+      originalName: string
+      value: string
+      originalValue: string
+      dependencies: Set<string>
+      isTheme: boolean
+    }
+  >()
+  for (const { ident, type, plugin, dependencies = new Set<string>(), ...rest } of messages) {
+    vars.set(ident, {
+      ...rest,
+      ident,
+      dependencies,
+      isTheme,
     })
   }
-  const container = (data as { [prop]: Map<string, RefVars> })[prop]
-  const { name, originalName, value, originalValue, dependencies = [] } = message
-  container.set(name, { name, originalName, value, originalValue, dependencies })
+  return vars
 }
 
-// 获取引用变量容器
-function getReferences(variables: ThemeLoaderData['themeLoaderVariablesData'] | null) {
-  if (variables) {
-    const data = variables as object
-    const prop = Symbol.for('RefVars')
-    if (data.hasOwnProperty(prop)) {
-      return (data as { [prop]: Map<string, RefVars> })[prop]
+// 获取引用类型变量
+function getReferenceVars(contextDict: VarsDict | null, variablesDict: VarsDict | null) {
+  const refs = new Map<string, RefVars>()
+  if (contextDict && variablesDict) {
+    for (const [ident, { dependencies, ...rest }] of contextDict) {
+      // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
+      if (dependencies.size && ![...dependencies].some((deps) => !variablesDict.has(deps))) {
+        refs.set(ident, { dependencies, ...rest })
+      }
     }
   }
-  return new Map<string, RefVars>()
+  return refs
 }
 
 // 获取变量值
@@ -275,7 +287,11 @@ function getVarsValue(
   }
 
   const { value } = variables.get(varName)!
-  if (!value || value === varName || varsDependency.has(value)) {
+  if (
+    !value ||
+    value === varName ||
+    (regExps[0].test(value) && varsDependency.has(makeVariableIdent(value)))
+  ) {
     // 空值，或则循环引用自身
     return ''
   }
@@ -302,7 +318,7 @@ function parseValue(
       // 当前节点是一个变量名引用
       containVars = true
       const varName = node.value
-      varsDependencies.add(varName)
+      varsDependencies.add(makeVariableIdent(varName))
       node.value = getVarsValue(varName, varsDependencies, variables, regExps)
     }
   })
@@ -312,32 +328,19 @@ function parseValue(
 
 // 格式化全局变量，解除变量引用关系
 function normalizeVarValue(variables: VariablesContext, regExps: ThemePropertyMatcher) {
-  for (const [key, vars] of variables) {
-    let { value, dependencies } = vars
-    dependencies.add(key)
+  for (const [prop, vars] of variables) {
+    let { ident, value, dependencies } = vars
+    dependencies.add(ident)
     value = value ? value.replace(/!(?!important).*/, '') : ''
     value = parseValue(value, dependencies, variables, regExps)
     if (!value) {
-      variables.delete(key)
+      variables.delete(prop)
     } else {
+      dependencies.delete(ident)
       vars.value = value
     }
   }
   return variables
-}
-
-// 转换数据类型
-function dataToVarsMap(data: { [p: string]: any } | undefined) {
-  if (!data) {
-    return null
-  }
-  const vars = new Map<string, string>()
-  for (const [name, value] of Object.entries(data)) {
-    if (typeof value === 'string') {
-      vars.set(name, value)
-    }
-  }
-  return vars
 }
 
 // 获取变量属性名称的正则表达式（@xxx、$xxx、--xxx）
@@ -352,5 +355,5 @@ function getVarPropertyRegExps(syntax: string) {
   const cssRegx = new RegExp(String.raw`^${cssProp}$`)
   const syntaxRegx = regStr[1] ? new RegExp(String.raw`^${regStr[1]}$`) : cssRegx
   const allRegx = regStr[1] ? new RegExp(String.raw`^(?:${regStr.join('|')})$`) : cssRegx
-  return [allRegx, syntaxRegx, cssRegx] as readonly [RegExp, RegExp, RegExp]
+  return [allRegx, syntaxRegx, cssRegx] as ThemePropertyMatcher
 }
