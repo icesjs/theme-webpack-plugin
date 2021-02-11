@@ -1,5 +1,6 @@
 import { Compiler, Plugin as WebpackPlugin } from 'webpack'
-import Plugin, { PluginOptions } from './Plugin'
+import { PluginOptions } from './options'
+import Plugin from './Plugin'
 
 // 使用单例
 let themePlugin: Plugin

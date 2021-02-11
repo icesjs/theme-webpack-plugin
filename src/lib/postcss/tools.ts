@@ -345,10 +345,10 @@ function normalizeVarValue(variables: VariablesContext, regExps: ThemePropertyMa
 
 // 获取变量属性名称的正则表达式（@xxx、$xxx、--xxx）
 function getVarPropertyRegExps(syntax: string) {
-  const cssProp = String.raw`--[-\w\u4e00-\u9fa5]+`
+  const cssProp = String.raw`--[-\w]+`
   const regStr = [cssProp]
   if (/^s[ac]ss$/.test(syntax)) {
-    regStr.push(String.raw`\$(?![\$\d])[-\$\w\u4e00-\u9fa5]+`)
+    regStr.push(String.raw`\$(?![\$\d])[-\$\w]+`)
   } else if (/^less$/.test(syntax)) {
     regStr.push(String.raw`@(?!@)[-\w]+`)
   }

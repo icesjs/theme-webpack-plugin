@@ -6,7 +6,7 @@ import { getQueryObject } from '../lib/utils'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
-function checkAndSetLoader(loaderContext: LoaderContext, esModule: boolean) {
+function checkAndSetLoader(loaderContext: LoaderContext) {
   const { loaders } = loaderContext
 
   loaders.forEach((loader, index) => {
@@ -17,6 +17,7 @@ function checkAndSetLoader(loaderContext: LoaderContext, esModule: boolean) {
     if (
       // 这里使用extract-loader来抽取内容，因为我们需要将抽取的内容转换为资源路径导出
       isFromModule('mini-css-extract-plugin', loaderPath) ||
+      isFromModule('extract-css-chunks-webpack-plugin', loaderPath) ||
       // 我们不需要style-loader将样式转换为js模块
       isFromModule('style-loader', loaderPath) ||
       // 先清除已使用的file-loader，后面我们再添加
@@ -28,22 +29,25 @@ function checkAndSetLoader(loaderContext: LoaderContext, esModule: boolean) {
     }
   })
 
+  const { esModule, publicPath, outputPath, filename } = themeLoader.getPluginOptions!()
+
   // 添加loader
   loaders.splice(
     1, // 0号索引为当前theme-loader，我们添加新loader到当前loader的后面
     0,
     // 这里的添加顺序不能错
     {
+      path: require.resolve('file-loader'),
       options: {
         esModule,
-        name: '[name].[contenthash:8].chunk.css',
-        outputPath: 'static/css/themes',
+        outputPath,
+        publicPath,
+        name: filename,
       },
-      path: require.resolve('file-loader'),
     },
     {
-      options: { esModule },
       path: require.resolve('extract-loader'),
+      options: { esModule },
     }
   )
 }
@@ -70,7 +74,7 @@ export const pitch: PluginLoader['pitch'] = function () {
   } else {
     // 转发资源请求时进入
     // 检查并添加新的loader
-    checkAndSetLoader(this, !!esModule)
+    checkAndSetLoader(this)
     // 执行loader链
     this.callback(null)
   }

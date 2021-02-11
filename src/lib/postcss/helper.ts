@@ -250,16 +250,11 @@ function mergeTopRootDecls(
     selector: ':root',
     nodes: decls,
   })
-  const isProdEnvironment = process.env.NODE_ENV !== 'development'
   // 合并:root节点
   for (const node of helper.result.root.nodes) {
     if (node.type === 'rule' && node.selector === ':root') {
       for (const decl of node.nodes) {
-        const cloned = decl.clone()
-        if (isProdEnvironment) {
-          cloned.cleanRaws(true)
-        }
-        rootRule.append(cloned)
+        rootRule.append(decl.clone())
       }
       node.remove()
     }
