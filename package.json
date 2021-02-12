@@ -26,9 +26,6 @@
     "schema-utils": "^3.0.0",
     "tslib": "^2.0.0"
   },
-  "optionalDependencies": {
-    "@ices/theme": "^1.0.0"
-  },
   "devDependencies": {
     "@types/is-color": "^1.0.0",
     "@types/loader-utils": "^2.0.1",

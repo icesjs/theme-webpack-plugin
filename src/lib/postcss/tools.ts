@@ -1,5 +1,5 @@
 import { getHashDigest } from 'loader-utils'
-import { Declaration, Plugin, Root, Rule, Syntax } from 'postcss'
+import { AtRule, Declaration, Plugin, Root, Rule, Syntax } from 'postcss'
 import valueParser from 'postcss-value-parser'
 import { isColorValue } from '../colors'
 
@@ -172,15 +172,28 @@ export function getTopScopeVariables(
     filter = () => true
   }
   for (const node of root.nodes) {
-    if (node.type === 'decl') {
-      // $var: value、 @var: value
-      if (regExps[1].test(node.prop) && filter(node, false)) {
+    if (node.type === 'decl' || node.type === 'atrule') {
+      let decl
+      if (node.type === 'atrule' && (node as any).variable) {
+        // @var: value
+        const value = (node as any).value || (node as AtRule).params || ''
+        decl = {
+          type: 'decl',
+          prop: `@${node.name}`,
+          value,
+        }
+      } else {
+        // $var: value
+        decl = node
+      }
+      const varNode = decl as Declaration
+      if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
         const dependencies = new Set<string>()
-        variables.set(node.prop, {
-          ident: makeVariableIdent(node.prop),
-          originalName: node.prop,
-          value: node.value,
-          originalValue: node.value,
+        variables.set(varNode.prop, {
+          ident: makeVariableIdent(varNode.prop),
+          originalName: varNode.prop,
+          value: varNode.value,
+          originalValue: varNode.value,
           isRootDecl: false,
           dependencies,
         })
@@ -350,7 +363,7 @@ function getVarPropertyRegExps(syntax: string) {
   if (/^s[ac]ss$/.test(syntax)) {
     regStr.push(String.raw`\$(?![\$\d])[-\$\w]+`)
   } else if (/^less$/.test(syntax)) {
-    regStr.push(String.raw`@(?!@)[-\w]+`)
+    regStr.push(String.raw`@{1,2}(?!@)[-\w]+`)
   }
   const cssRegx = new RegExp(String.raw`^${cssProp}$`)
   const syntaxRegx = regStr[1] ? new RegExp(String.raw`^${regStr[1]}$`) : cssRegx

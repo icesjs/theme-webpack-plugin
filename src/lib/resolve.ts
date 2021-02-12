@@ -22,24 +22,7 @@ export async function resolveStyle(
   if (syntax !== 'css') {
     extensions.unshift('.css')
   }
-
-  const ids = []
-  if (matchModuleImport.test(id)) {
-    id = path.resolve('node_modules', id.substr(1))
-    ids.push(id)
-  } else {
-    ids.push(`./${id}`, id)
-  }
-  const targets = []
-  for (const id of ids) {
-    targets.push(id)
-    for (const ext of extensions) {
-      if (!id.endsWith(ext)) {
-        targets[id.startsWith('.') ? 'unshift' : 'push'](`${id}${ext}`)
-      }
-    }
-  }
-
+  const targets = getStyleTargets(id, extensions)
   for (const tar of targets) {
     try {
       return await new Promise((resolve, reject) => {
@@ -155,6 +138,52 @@ export function resolveModule(name: string, paths?: string[]) {
 
 export function resolveWebpack(paths?: string[]) {
   return resolveModule('webpack', paths)
+}
+
+function normalizeTargets(targets: string[]) {
+  const relativeFiles = new Set<string>()
+  const moduleFiles = new Set<string>()
+  for (const tar of targets) {
+    const file = path.normalize(tar).replace(/\\/g, '/')
+    if (!path.isAbsolute(file)) {
+      relativeFiles.add(`./${file}`)
+    }
+    moduleFiles.add(file)
+  }
+  return [...new Set([...relativeFiles, ...moduleFiles])]
+}
+
+function getStyleTargets(id: string, extensions: string[]) {
+  const ids = []
+  if (matchModuleImport.test(id)) {
+    id = path.resolve('node_modules', id.substr(1))
+    ids.push(id)
+    const context = getContextFromFile(id)
+    if (context) {
+      try {
+        const pkg = require(path.join(context, 'package.json'))
+        if (pkg.style) {
+          ids.unshift(path.join(context, pkg.style))
+        } else if (!pkg.main || !/\.css$/.test(pkg.main)) {
+          ids.push(path.join(context, 'index.css'))
+        }
+      } catch (e) {}
+    }
+  } else {
+    ids.push(`./${id}`, id)
+  }
+
+  const targets = []
+  for (const id of ids) {
+    targets.push(id)
+    for (const ext of extensions) {
+      if (!id.endsWith(ext)) {
+        targets[id.startsWith('.') ? 'unshift' : 'push'](`${id}${ext}`)
+      }
+    }
+  }
+
+  return normalizeTargets(targets)
 }
 
 function throwModuleNotFoundError(name: string, paths: string[]): never {

@@ -1,6 +1,6 @@
 import * as fs from 'fs'
-import type { Message, Syntax } from 'postcss'
-import postcss, { AcceptedPlugin } from 'postcss'
+import type { AcceptedPlugin, Message, Syntax } from 'postcss'
+import postcss from 'postcss'
 import type { AtImportOptions } from 'postcss-import'
 import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
@@ -147,11 +147,11 @@ function getCommonPlugins(loaderContext: LoaderContext, importOptions: AtImportO
   const plugins = [
     atImport({
       root: rootContext,
+      skipDuplicates: true,
       // 使用webpack的缓存文件系统读取文件
       load: (filename: string) => readFile(filename, fileSystem),
       // 这里resolve要使用webpack的resolve模块，webpack可能配置了resolve别名等
       resolve: (id: string, basedir: string) => resolveStyle(resolve, id, syntax, basedir),
-      //
       ...importOptions,
     }),
   ] as AcceptedPlugin[]
@@ -323,7 +323,8 @@ export const pitch: PluginLoader['pitch'] = function () {
 
 // normal 阶段
 const varsLoader: PluginLoader = function (source, map) {
-  const { data, resourcePath } = this as LoaderContext
+  const loaderContext = this as LoaderContext
+  const { data, resourcePath } = loaderContext
   const { isStylesheet, options, syntaxPlugin } = data
   const { syntax, onlyColor, sourceMap } = options
 

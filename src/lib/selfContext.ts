@@ -16,6 +16,7 @@ function getSelfContext() {
 }
 
 export function getContextFromFile(file: string, cwd = process.cwd()) {
+  file = path.join(file, 'index.js')
   while (!fs.existsSync(path.join((file = path.dirname(file)), 'package.json'))) {
     if (file === cwd || path.basename(file) === 'node_modules') {
       file = ''

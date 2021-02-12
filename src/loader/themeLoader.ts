@@ -37,6 +37,7 @@ function checkAndSetLoader(loaderContext: LoaderContext) {
     0,
     // 这里的添加顺序不能错
     {
+      ident: 'file-loader',
       path: require.resolve('file-loader'),
       options: {
         esModule,
@@ -46,6 +47,7 @@ function checkAndSetLoader(loaderContext: LoaderContext) {
       },
     },
     {
+      ident: 'extract-loader',
       path: require.resolve('extract-loader'),
       options: { esModule },
     }

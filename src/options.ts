@@ -1,7 +1,9 @@
+import * as fs from 'fs'
 import * as path from 'path'
 import { validate } from 'schema-utils'
 import { Schema } from 'schema-utils/declarations/validate'
 import { selfModuleName } from './lib/selfContext'
+import { resolveModulePath } from './lib/resolve'
 
 const defaultExportPath = '@ices/theme/dist/theme.js'
 
@@ -21,7 +23,7 @@ export interface PluginOptions {
    * 默认过滤 .css, .sass, .scss, .less<br>
    * @param path 匹配到的文件路径
    */
-  themeFilter?: RegExp | ((path: string) => boolean)
+  themeFilter?: ((path: string) => boolean) | RegExp
   /**
    * 主题内容导出路径。一般不需要配置这项。<br>
    * 如果默认的主题管理包 <code>@ices/theme</code> 不符合你的主题管理要求，
@@ -58,7 +60,13 @@ export interface PluginOptions {
    * 以及符合 <code>Web</code> 标准的颜色代码
    * （比如 <code>#fff</code>、<code>rgb</code>、<code>rgba</code>、<code>hsl</code>）等等。
    * <br>
-   * 注意，如果变量的引用不是来自于主题文件，则此变量不会被抽取，所以，你的样式文件还是需要导入要使用的主题样式文件的。<br>
+   * 如果变量的引用不是来自于主题文件，则此变量不会被抽取，所以，你的样式文件还是需要导入要使用的主题样式文件的。<br>
+   * 可被当成主题变量抽取的变量声明，含特定语法的变量声明（比如：$scss-var:xxx、@less-var:xxx）以及定义在<code>:root</code>规则上的css自定义属性
+   * （<code>:root{--my-prop:xxx}</code>）<br>
+   * 注意，如果你在当前文件中声明了一个和导入变量同名的变量，则本插件不会将这个变量提取，也就是说仅有来自于主题文件(含主题文件自身导入的其他文件)中的变量才会被提取。
+   * 有一个特殊情况是，如果本地变量值里又使用了其他的变量，而这些其他的变量都来自于主题文件，则该本地变量同样会被提取。
+   * 比如：$my-border：1px solid $color-from-dark-theme，在这个本地变量$my-border里面又引用了一个来自主题里面的变量$color-from-dark-theme，因为所有变量的引用
+   * 都可以计算出其来源，并确定都是来源于主题文件，所以引用了$my-border变量的声明值，也会被当成动态主题提取。<br>
    * 一般你只需要导入默认的主题样式文件即可，默认的主题样式文件里可声明所有需要用到的主题变量，当然如果你不导入主题样式文件，
    * 编译特定语法的样式文件（比如 xxx.scss）也会报错，因为找不到对应的变量，所以无论如何你还是要在你的样式文件里导入至少一个主题声明文件的。<br>
    * 被抽取的变量，会将其当前已声明的值赋为var(--xxx)变量引用的默认值，
@@ -210,7 +218,7 @@ export function getOptions(opts?: PluginOptions) {
 
   if (themeExportPath === defaultExportPath) {
     try {
-      options.themeExportPath = require.resolve(themeExportPath)
+      options.themeExportPath = resolveModulePath(themeExportPath, [fs.realpathSync(process.cwd())])
     } catch (e) {
       throw new Error(
         'There are no installed theme lib, please install "@ices/theme" first or set the option of "themeExportPath" to a customize theme module export path'

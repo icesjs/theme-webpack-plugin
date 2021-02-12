@@ -123,26 +123,27 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   // 根据路径模式，获取主题变量声明文件
   async getThemeFiles(context: string = process.cwd()) {
     const { themes, themeFilter } = this.options
-    const files = await globby(
-      (Array.isArray(themes) ? themes : [themes])
-        .filter((file) => typeof file === 'string' && file.trim())
-        .map((file) => file!.replace(/\\/g, '/').trim()),
-      {
+    const patterns = (Array.isArray(themes) ? themes : [themes!]).map((file) =>
+      file.replace(/\\/g, '/')
+    )
+    return (
+      await globby(patterns, {
         cwd: context,
         absolute: true,
         onlyFiles: true,
         dot: false,
-      }
+      })
     )
-    return files.filter((file) => {
-      if (typeof themeFilter === 'function') {
-        return !!themeFilter(file)
-      }
-      if (themeFilter instanceof RegExp) {
-        return themeFilter.test(file)
-      }
-      return isStylesheet(file)
-    })
+      .map((file) => path.normalize(file))
+      .filter((file) => {
+        if (themeFilter instanceof RegExp) {
+          return themeFilter.test(file)
+        }
+        if (typeof themeFilter === 'function') {
+          return !!themeFilter(file)
+        }
+        return isStylesheet(file)
+      })
   }
 
   // 应用loader
@@ -153,8 +154,8 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   ) {
     const loaders = findLoader(
       compilerOptions,
-      ({ siblings, index, isUseItem, rule }) => {
-        if (matchRule(rule)) {
+      ({ siblings, index, isUseItem, rule, name }) => {
+        if (name !== 'file-loader' && matchRule(rule)) {
           return !isUseItem || index === siblings.length - 1
         }
         return false

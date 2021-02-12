@@ -124,10 +124,7 @@ export function createVarsRootRuleNode(options: {
       })
     )
   }
-  let node: Rule | Comment = helper.rule({
-    selector: ':root',
-    nodes: decls,
-  })
+  let node: Rule | Comment = createRootRule(decls, syntax, helper)
   let prevNode
   for (const node of root.nodes) {
     if (node.type === 'atrule' && node.name === 'import') {
@@ -246,10 +243,7 @@ function mergeTopRootDecls(
   syntax: string,
   helper: Helpers
 ) {
-  const rootRule = helper.rule({
-    selector: ':root',
-    nodes: decls,
-  })
+  const rootRule = createRootRule(decls, syntax, helper)
   // 合并:root节点
   for (const node of helper.result.root.nodes) {
     if (node.type === 'rule' && node.selector === ':root') {
@@ -264,4 +258,16 @@ function mergeTopRootDecls(
     decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
   })
   return rootRule
+}
+
+// 创建:root规则对象
+function createRootRule(decls: Declaration[], syntax: string, helper: Helpers) {
+  return helper.rule({
+    selector: ':root',
+    nodes: decls,
+    raws: {
+      // 最后一条声明语句要以";"结尾，不然less等解析器会报错
+      semicolon: /css|less|scss/.test(syntax),
+    },
+  })
 }
