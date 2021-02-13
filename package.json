@@ -1,6 +1,6 @@
 {
   "name": "@ices/theme-webpack-plugin",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-beta",
   "description": "A library for process themes",
   "main": "dist/index.js",
   "types": "types/index.d.ts",

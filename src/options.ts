@@ -9,11 +9,6 @@ const defaultExportPath = '@ices/theme/dist/theme.js'
 
 export interface PluginOptions {
   /**
-   * 是否启用sourceMap。<br>
-   * 默认为"auto"，即根据webpack配置中的devtool项进行自动设置。
-   */
-  sourceMap?: boolean | 'inline' | 'auto'
-  /**
    * 变量声明文件。<br>
    * 可使用glob语法。
    */
@@ -108,11 +103,6 @@ const schema: Schema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    sourceMap: {
-      description: 'Indicates whether SourceMap from css should be used (defaults to "auto").',
-      default: 'auto',
-      oneOf: [{ type: 'boolean' }, { enum: ['inline', 'auto'] }],
-    },
     themes: {
       description: 'Directories or Files should be used as theme file. Can use glob pattern.',
       default: [],
@@ -196,7 +186,6 @@ const schema: Schema = {
 export function getOptions(opts?: PluginOptions) {
   const options = Object.assign(
     {
-      sourceMap: 'auto',
       themes: [],
       // themeFilter: null,
       themeExportPath: defaultExportPath,

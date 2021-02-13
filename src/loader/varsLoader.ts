@@ -6,15 +6,7 @@ import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
 import { PluginLoader } from '../Plugin'
 import { selfModuleName } from '../lib/selfContext'
-import {
-  formatSourceMap,
-  getQueryObject,
-  getRawSourceMap,
-  getValidSyntax,
-  isSamePath,
-  isStylesheet,
-  readFile,
-} from '../lib/utils'
+import { getQueryObject, getValidSyntax, isSamePath, isStylesheet, readFile } from '../lib/utils'
 import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
 import { getVarsMessages } from '../lib/postcss/helper'
 import {
@@ -30,7 +22,6 @@ import { resolveStyle } from '../lib/resolve'
 type WebpackLoaderContext = import('webpack').loader.LoaderContext
 
 export interface VarsLoaderOptions {
-  sourceMap: boolean | string
   cssModules: boolean | { [p: string]: any }
   onlyColor: boolean
   syntax: string
@@ -326,7 +317,7 @@ const varsLoader: PluginLoader = function (source, map) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
   const { isStylesheet, options, syntaxPlugin } = data
-  const { syntax, onlyColor, sourceMap } = options
+  const { syntax, onlyColor } = options
 
   if (!isStylesheet) {
     this.callback(null, source, map)
@@ -350,11 +341,9 @@ const varsLoader: PluginLoader = function (source, map) {
     .process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
-      map: sourceMap
-        ? { inline: sourceMap === 'inline', annotation: false, prev: getRawSourceMap(map) }
-        : false,
+      map: false,
     })
-    .then(({ css, map }) => callback(null, css, formatSourceMap(map)))
+    .then(({ css }) => callback(null, css))
     .catch(callback)
 }
 

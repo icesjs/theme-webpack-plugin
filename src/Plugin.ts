@@ -32,29 +32,30 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   constructor(opts?: PluginOptions) {
     this.options = getOptions(opts)
     themeLoader.getPluginOptions = () => ({ ...this.options })
-    varsLoader.getPluginOptions = () => ({ ...this.options })
   }
 
   // 使用 webpack 插件
   apply(compiler: Compiler) {
-    const { options } = this
     const { options: compilerOptions } = compiler
-    const { devtool } = compilerOptions
-    const { sourceMap } = options
-    if (sourceMap === 'auto') {
-      options.sourceMap = /eval|inline/.test(`${devtool}`) ? 'inline' : !!devtool
-    }
+    const { mode } = compilerOptions
+    const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
+    const pluginName = ThemeWebpackPlugin.name
+
     this.applyVarsLoader(compilerOptions)
-    compiler.hooks.run.tapPromise(ThemeWebpackPlugin.name, async (compiler) =>
-      this.createThemeModule(compilerOptions.context || compiler.context)
+
+    compiler.hooks.run.tapPromise(pluginName, async (compiler) =>
+      this.createThemeModule(compiler.context || compilerOptions.context || process.cwd(), false)
     )
-    compiler.hooks.watchRun.tapPromise(ThemeWebpackPlugin.name, async (compiler) =>
-      this.createThemeModule(compilerOptions.context || compiler.context)
+    compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
+      this.createThemeModule(
+        compiler.context || compilerOptions.context || process.cwd(),
+        !isEnvProduction
+      )
     )
   }
 
   // 创建主题模块
-  async createThemeModule(context: string) {
+  async createThemeModule(context: string, watchMode: boolean) {
     const { defaultTheme, themeExportPath } = this.options
     const themeFiles = await this.getThemeFiles(context)
     if (
@@ -69,25 +70,24 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     } else if (themeFiles.length) {
       validDefaultTheme = getFileThemeName(themeFiles[0])
     }
-    const code = this.getThemeModuleCode(themeFiles, validDefaultTheme || '')
+    const code = this.getThemeModuleCode(themeFiles, validDefaultTheme || '', watchMode)
+
     await promisify(fs.writeFile)(themeExportPath!, code).catch((err) => {
       this.themeFiles.clear()
       throw err
     })
   }
 
-  private getThemeModuleCode(themeFiles: string[], defaultTheme: string) {
+  private getThemeModuleCode(themeFiles: string[], defaultTheme: string, watchMode: boolean) {
     const { themeRequestToken, options } = this
     const { esModule } = options
     const exportStatement = `${esModule ? 'export default ' : 'module.exports = '}themes\n`
 
     this.themeFiles.clear()
-    if (!themeFiles.length) {
-      return `const themes = []\n${exportStatement}`
-    }
 
     const imports = []
     const themes = []
+    const hotUpdateResources: { name: string; path: string }[] = []
     const runtime = JSON.stringify(path.join(__dirname, 'lib/runtime'))
 
     if (esModule) {
@@ -100,24 +100,78 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     for (const [index, file] of Object.entries(themeFiles)) {
       this.themeFiles.add(file)
       const name = getFileThemeName(file)
-      const resource = JSON.stringify(
-        `${
-          name !== defaultTheme ? `!!${themeLoader.filepath}!` : ''
-        }${file}?esModule=${esModule}&token=${themeRequestToken}`
-      )
+      const ident = `theme${index}`
+      const isDefault = name === defaultTheme
+
+      const originalResource = `${
+        !isDefault ? `!!${themeLoader.filepath}!` : ''
+      }${file}?esModule=${esModule}&token=${themeRequestToken}`
+      const resource = JSON.stringify(originalResource)
+
+      hotUpdateResources.push({ name, path: originalResource })
+
       if (esModule) {
-        imports.push(`import theme${index} from ${resource}`)
+        imports.push(`import ${isDefault ? '' : `${ident} from `}${resource}`)
       } else {
-        imports.push(`const theme${index} = _def(require(${resource}))`)
+        imports.push(
+          isDefault ? `require(${resource})` : `const theme${index} = _def(require(${resource}))`
+        )
       }
-      themes.push(`{ name: ${JSON.stringify(name)}, path: theme${index} }`)
+
+      themes.push(
+        `{ name: ${JSON.stringify(name)}, path: ${isDefault ? '"theme@default"' : ident} }`
+      )
     }
 
     imports.push(
       `const themes = useThemes([\n${themes.join(',\n')}\n], ${JSON.stringify(defaultTheme)})`
     )
+    const hmrCode = this.getHotModuleReplaceCode(watchMode, hotUpdateResources, defaultTheme)
 
-    return `${imports.join('\n')}\n${exportStatement}`
+    return `${imports.join('\n')}\n${hmrCode}\n${exportStatement}`
+  }
+
+  // 获取支持热更新的代码
+  getHotModuleReplaceCode(
+    hot: boolean,
+    resources: { name: string; path: string }[],
+    defaultTheme: string
+  ) {
+    if (!hot) {
+      return ''
+    }
+    return `
+if (module.hot) {
+  module.hot.accept(
+    //
+    ${JSON.stringify(resources.map(({ path }) => path))},
+    //
+    function() {
+      var themes = [\n${resources
+        .map(
+          ({ name, path }) => `{name:${JSON.stringify(name)},path:require(${JSON.stringify(path)})}`
+        )
+        .join(',\n')}\n]
+      //
+      useThemes(
+        themes.map(function(theme) {
+          var path = theme.path
+          path = path && path.__esModule ? path['default'] : path
+          if (theme.name === ${JSON.stringify(defaultTheme)}) {
+            theme.path = "theme@default"
+          } else {
+            theme.path = path
+          }
+          return theme
+        }),
+        ${JSON.stringify(defaultTheme)}
+      )
+    }
+    //
+  )
+  //
+  module.hot.decline()
+}`
   }
 
   // 根据路径模式，获取主题变量声明文件
@@ -144,6 +198,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
         }
         return isStylesheet(file)
       })
+      .sort()
   }
 
   // 应用loader
@@ -211,7 +266,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     } else {
       syntax = 'css'
     }
-    const { sourceMap, onlyColor, cssModules } = this.options
+    const { onlyColor, cssModules } = this.options
     return {
       loader: varsLoader.filepath,
       options: {
@@ -219,7 +274,6 @@ class ThemeWebpackPlugin implements WebpackPlugin {
         cssModules: cssModules === 'auto' ? isCssRule(rule, { onlyModule: true }) : cssModules,
         onlyColor: !!onlyColor,
         token: this.themeRequestToken,
-        sourceMap,
         syntax,
       } as VarsLoaderOptions,
     }

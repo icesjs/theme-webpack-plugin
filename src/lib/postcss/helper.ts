@@ -120,7 +120,13 @@ export function createVarsRootRuleNode(options: {
       helper.decl({
         prop: ident,
         value: originalValue,
-        raws: { between: ':', value: { value: originalValue, raw: value } },
+        raws: {
+          between: `: `,
+          value: {
+            value: originalValue,
+            raw: asComment ? value : originalValue,
+          },
+        },
       })
     )
   }

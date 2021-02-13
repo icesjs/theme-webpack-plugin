@@ -1,6 +1,5 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import type { SourceMap } from 'postcss'
 import { parseQuery } from 'loader-utils'
 
 // 获取一个token，非作为ID，仅用于标记theme文件请求
@@ -44,31 +43,6 @@ export function isSamePath(x: any, y: any) {
 // 获取主题的名称
 export function getFileThemeName(file: string) {
   return path.basename(file, path.extname(file)).toLowerCase()
-}
-
-// 将上一个 loader 处理过的 sourceMap 转换为 RawSourceMap
-export function getRawSourceMap(map: any) {
-  let sourceMap = null
-  if (typeof map === 'string') {
-    try {
-      sourceMap = JSON.parse(map)
-    } catch (e) {}
-  } else if (map && typeof map === 'object') {
-    sourceMap = map
-  }
-  return sourceMap
-}
-
-// 格式化 postcss 处理后的 sourceMap 为 RawSourceMap
-export function formatSourceMap(map: SourceMap) {
-  const sourceMap = map ? map.toJSON() : undefined
-  if (sourceMap) {
-    if (sourceMap.file) {
-      sourceMap.file = path.resolve(sourceMap.file)
-    }
-    sourceMap.sources = sourceMap.sources.map((src) => path.resolve(src))
-  }
-  return sourceMap
 }
 
 // 获取有效的语法名称
