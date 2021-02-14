@@ -77,11 +77,11 @@ export interface PluginOptions {
    * 主题发布目录。相对于构建输出目录。<br>
    * 默认为 themes。
    */
-  outputPath?: string | ((url: string, resourcePath: string, context: string) => string)
+  outputPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
    * 服务器部署路径。默认为 __webpack_public_path__ + outputPath
    */
-  publicPath?: string | ((url: string, resourcePath: string, context: string) => string)
+  publicPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
    * 生成的代码是否使用esModule语法。<br>
    * 默认为true。

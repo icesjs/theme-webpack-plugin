@@ -1,6 +1,7 @@
 import type {
   Compiler,
   Configuration,
+  Output as WebpackOutput,
   Plugin as WebpackPlugin,
   RuleSetLoader,
   RuleSetRule,
@@ -13,14 +14,21 @@ import globby from 'globby'
 import { findLoader, isCssRule } from '@ices/use-loader'
 import { getFileThemeName, getToken, isStylesheet } from './lib/utils'
 import varsLoader, { VarsLoaderOptions } from './loader/varsLoader'
+import extractLoader from './loader/extractLoader'
 import themeLoader from './loader/themeLoader'
 import { getOptions, PluginOptions } from './options'
 
 export type WebpackLoader = import('webpack').loader.Loader
+type CompilerOutput = NonNullable<WebpackOutput>
+
+type CompilerOptions = {
+  readonly output: CompilerOutput
+}
 
 export interface PluginLoader extends WebpackLoader {
   filepath: string
   getPluginOptions?: () => PluginOptions
+  getCompilerOptions?: () => CompilerOptions
 }
 
 //
@@ -28,10 +36,15 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   private readonly options: PluginOptions
   private readonly themeFiles = new Set<string>()
   private readonly themeRequestToken = getToken()
+  private compilerOutput: CompilerOutput = {}
 
   constructor(opts?: PluginOptions) {
     this.options = getOptions(opts)
     themeLoader.getPluginOptions = () => ({ ...this.options })
+    extractLoader.getPluginOptions = () => ({ ...this.options })
+    extractLoader.getCompilerOptions = () => ({
+      output: { ...this.compilerOutput },
+    })
   }
 
   // 使用 webpack 插件
@@ -40,6 +53,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     const { mode } = compilerOptions
     const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
     const pluginName = ThemeWebpackPlugin.name
+    this.compilerOutput = Object.assign({}, compilerOptions.output)
 
     this.applyVarsLoader(compilerOptions)
 

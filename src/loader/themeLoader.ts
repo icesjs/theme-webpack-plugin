@@ -3,32 +3,32 @@ import { selfModuleName } from '../lib/selfContext'
 import { isFromModule } from '../lib/resolve'
 import { PluginLoader } from '../Plugin'
 import { getQueryObject } from '../lib/utils'
+import extractLoader from './extractLoader'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
 function checkAndSetLoader(loaderContext: LoaderContext) {
   const { loaders } = loaderContext
 
-  loaders.forEach((loader, index) => {
+  for (const loader of [...loaders]) {
     if (typeof loader !== 'object') {
-      return
+      continue
     }
     const { path: loaderPath } = loader
     if (
-      // 这里使用extract-loader来抽取内容，因为我们需要将抽取的内容转换为资源路径导出
+      // 这些extract相关的loader提供的API要么不适合当前需求，要么过期不维护，要么有bug
       isFromModule('mini-css-extract-plugin', loaderPath) ||
       isFromModule('extract-css-chunks-webpack-plugin', loaderPath) ||
       isFromModule('extract-text-webpack-plugin', loaderPath) ||
+      isFromModule('extract-loader', loaderPath) ||
       // 我们不需要style-loader将样式转换为js模块
       isFromModule('style-loader', loaderPath) ||
       // 先清除已使用的file-loader，后面我们再添加
-      isFromModule('file-loader', loaderPath) ||
-      // 先清除已使用的extract-loader，后面我们再添加
-      isFromModule('extract-loader', loaderPath)
+      isFromModule('file-loader', loaderPath)
     ) {
-      loaders.splice(index, 1)
+      loaders.splice(loaders.indexOf(loader), 1)
     }
-  })
+  }
 
   const { esModule, publicPath, outputPath, filename } = themeLoader.getPluginOptions!()
 
@@ -48,9 +48,9 @@ function checkAndSetLoader(loaderContext: LoaderContext) {
       },
     },
     {
-      ident: 'extract-loader',
-      path: require.resolve('extract-loader'),
-      options: { esModule },
+      // 使用自己实现的css资源抽取loader
+      ident: 'extract-css-loader',
+      path: extractLoader.filepath,
     }
   )
 }

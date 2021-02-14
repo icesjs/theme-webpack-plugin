@@ -103,7 +103,7 @@ export function pluginFactory(
 
 // 根据属性名称创建变量标识名
 export function makeVariableIdent(name: string) {
-  let ident = `--${name.replace(/[^-\w\u4e00-\u9fa5]/g, '') || 'var'}`
+  let ident = `--${name.replace(/[^-\w]/g, '') || 'var'}`
   ident += `-${getHashDigest(Buffer.from(name), 'md4', 'hex', 4)}`
   if (process.env.NODE_ENV !== 'development') {
     ident = `--${getHashDigest(Buffer.from(ident), 'md4', 'hex', 6)}`
