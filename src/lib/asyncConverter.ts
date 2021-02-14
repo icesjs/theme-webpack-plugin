@@ -82,7 +82,9 @@ function toAsyncFunction(path: NodePath<BabelFunction>) {
   }
 }
 
+// babel插件
 // 将全局方法，转换为异步调用形式
+// 这里仅限全局方法，而且暂时也只需要处理全局方法
 export default function (globalMethods: string[]) {
   return {
     visitor: {

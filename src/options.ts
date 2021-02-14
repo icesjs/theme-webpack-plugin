@@ -83,6 +83,19 @@ export interface PluginOptions {
    */
   publicPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
+   * 资源文件的相对部署路径。资源文件指在主题文件中引用的url资源，比如图片，字体等。<br>
+   * 默认为从主题文件本身的输出目录回退到构建输出目录的相对路径。因为资源文件一般是相对于主题文件本身路径引用的，所以是相对路径。比如，
+   * 主题文件相对构建目录输出路径为 <code>static/themes/dark.css</code>，则资源部署路径被设置为<code>../../</code><br>
+   * 如果默认的设置不符合需求，可以通过此项配置设置一个固定的值，或者使用一个函数根据参数返回资源的相对部署路径。
+   */
+  resourcePublicPath?:
+    | string
+    | ((externalFile: string, resourcePath: string, projectContext: string) => string)
+  /**
+   * 需要计算相对部署路径的资源文件的筛选规则。默认根据资源扩展名称筛选图片、字体等文件。
+   */
+  resourceFilter?: ((externalFile: string, resourcePath: string) => boolean) | RegExp
+  /**
    * 生成的代码是否使用esModule语法。<br>
    * 默认为true。
    */
@@ -121,15 +134,8 @@ const schema: Schema = {
       ],
     },
     themeFilter: {
-      description: 'A filter function for theme file.',
-      oneOf: [
-        {
-          instanceof: 'RegExp',
-        },
-        {
-          instanceof: 'Function',
-        },
-      ],
+      description: 'An RegExp or Function filter for the theme file.',
+      oneOf: [{ instanceof: 'RegExp' }, { instanceof: 'Function' }],
     },
     themeExportPath: {
       description: `A file for output the content of theme module (default to "${defaultExportPath}").`,
@@ -168,6 +174,15 @@ const schema: Schema = {
       // default: '__webpack_public_path__ + outputPath',
       oneOf: [{ type: 'string', minLength: 1 }, { instanceof: 'Function' }],
     },
+    resourcePublicPath: {
+      description:
+        'Specifies a custom public path for the external resources like images, files, etc inside theme CSS.',
+      oneOf: [{ type: 'string', minLength: 1 }, { instanceof: 'Function' }],
+    },
+    resourceFilter: {
+      description: 'An RegExp or Function filter for the external resources.',
+      oneOf: [{ instanceof: 'RegExp' }, { instanceof: 'Function' }],
+    },
     esModule: {
       description: 'Indicates whether ECMAScript export syntax should be used (default to true).',
       default: true,
@@ -194,6 +209,8 @@ export function getOptions(opts?: PluginOptions) {
       filename: '[name].[contenthash:8].chunk.css',
       outputPath: 'themes',
       // publicPath: '',
+      // resourcePublicPath,
+      // resourceFilter,
       esModule: true,
       cssModules: 'auto',
     },

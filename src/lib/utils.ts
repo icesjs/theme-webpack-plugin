@@ -63,3 +63,26 @@ export function readFile(resourcePath: string, fileSystem: typeof fs) {
     )
   }) as Promise<string>
 }
+
+// 对象上是否包含属性
+export function hasOwnProperty(obj: any, prop: PropertyKey, valueType?: string) {
+  if (obj === null || obj === undefined) {
+    return false
+  }
+  const hasProp = Object.prototype.hasOwnProperty.call(obj, prop)
+  return hasProp && (valueType ? typeof obj[prop] === valueType : true)
+}
+
+// 判断模块导出是不是esModule格式
+export function isEsModuleExport(exports: any) {
+  return hasOwnProperty(exports, '__esModule', 'boolean')
+}
+
+// 格式化部署路径
+export function normalizePublicPath(publicPath: any) {
+  if (typeof publicPath !== 'string' || publicPath === '') {
+    return './'
+  }
+  publicPath = publicPath.replace(/\\/g, '/')
+  return publicPath.endsWith('/') ? publicPath : `${publicPath}/`
+}
