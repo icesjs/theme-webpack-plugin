@@ -79,10 +79,31 @@ export function isEsModuleExport(exports: any) {
 }
 
 // 格式化部署路径
-export function normalizePublicPath(publicPath: any) {
+export function normalizePublicPath(publicPath: any): string {
   if (typeof publicPath !== 'string' || publicPath === '') {
     return './'
   }
-  publicPath = publicPath.replace(/\\/g, '/')
+  publicPath = publicPath.replace(/\\/g, '/').trim()
   return publicPath.endsWith('/') ? publicPath : `${publicPath}/`
+}
+
+// 格式化相对路径
+export function normalizeRelativePath(path: string) {
+  path = path.trim()
+  if (!path.startsWith('.')) {
+    path = `./${path}`
+  }
+  return path.replace(/\\/g, '/')
+}
+
+// 判断是不是相对地址
+export function isRelativePath(path: string) {
+  if (typeof (path as any) !== 'string' || !path) {
+    return false
+  }
+  return (
+    !/^([a-z]:)?[/\\]/i.test(path) &&
+    !/^(?:\w+:)?\/\/(\S+)$/.test(path) &&
+    !/^[/\\]{2,}[^/\\]+[/\\]+[^/\\]+/.test(path)
+  )
 }

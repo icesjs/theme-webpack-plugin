@@ -16,6 +16,7 @@ import {
   extractTopScopeVarsPlugin,
   extractVariablesPlugin,
   extractVarsPlugin,
+  extractURLVars,
 } from '../lib/postcss/plugins'
 import { resolveStyle } from '../lib/resolve'
 
@@ -52,6 +53,7 @@ async function setVarsData(loaderContext: LoaderContext, messages: Message[]) {
   } else {
     data.themeMessages = getThemeVarsMessages(messages)
   }
+  data.urlMessages = getURLVarsMessages(messages)
 }
 
 // 判断是不是主题文件
@@ -100,7 +102,6 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
     }
   }
 
-  // 转换为数组
   return [...themeVars.values()]
 }
 
@@ -123,6 +124,16 @@ function getThemeVarsMessages(messages: Message[]) {
   )
 }
 
+// 获取URL变量
+function getURLVarsMessages(messages: Message[]) {
+  const varsMap = new Map<string, ThemeVarsMessage>()
+  for (const vars of getVarsMessages(messages, ({ type }) => type === 'theme-url-vars')) {
+    // 由于存在文件导入，这里去重下（顺序不能变，后面的覆盖前面的）
+    varsMap.set(vars.ident, vars)
+  }
+  return [...varsMap.values()]
+}
+
 // 获取语法插件模块
 function getSyntaxPlugin(syntax: string) {
   return require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`) as Syntax
@@ -131,19 +142,23 @@ function getSyntaxPlugin(syntax: string) {
 // 获取通用插件模块
 function getCommonPlugins(loaderContext: LoaderContext, importOptions: AtImportOptions = {}) {
   const { rootContext, resolve, data } = loaderContext
-  const { options, fileSystem } = data
-  const { syntax, cssModules } = options
+  const { options, fileSystem, syntaxPlugin } = data
+  const { syntax, cssModules, onlyColor } = options
   //
   const plugins = [
     atImport({
       root: rootContext,
       skipDuplicates: true,
+      // 抽取URL变量，导入的URL变量，如果是相对路径，不作处理，会有问题
+      // 本应该由相应语言loader自己处理路径转换的，但不知为啥没有处理
+      // 关于这个问题，resolve-url-loader 有专门的说明，并且提供一种通过sourceMap来解决的方案
+      plugins: [extractURLVars({ syntax, syntaxPlugin, onlyColor })],
       // 使用webpack的缓存文件系统读取文件
       load: (filename: string) => readFile(filename, fileSystem),
       // 这里resolve要使用webpack的resolve模块，webpack可能配置了resolve别名等
       resolve: (id: string, basedir: string) => resolveStyle(resolve, id, syntax, basedir),
       ...importOptions,
-    }),
+    } as AtImportOptions),
   ] as AcceptedPlugin[]
   //
   if (cssModules) {
@@ -285,7 +300,7 @@ export const pitch: PluginLoader['pitch'] = function () {
 
     if (isThemeFile) {
       if (!isThemeRequest) {
-        // 由用户自己导入的主题文件
+        // 由用户自己导入的主题文件（从js代码里引用）
         // 抽取变量，替换样式文件
         return extractTopScopeVars(loaderContext, source, resourcePath)
       }
@@ -323,7 +338,7 @@ const varsLoader: PluginLoader = function (source, map) {
     return
   }
 
-  const { themeMessages, variablesMessages, contextMessages } = data
+  const { urlMessages, themeMessages, variablesMessages, contextMessages } = data
   const callback = this.async() || (() => {})
 
   postcss([
@@ -332,6 +347,7 @@ const varsLoader: PluginLoader = function (source, map) {
       syntax,
       onlyColor,
       syntaxPlugin,
+      urlMessages,
       themeMessages,
       variablesMessages,
       contextMessages,

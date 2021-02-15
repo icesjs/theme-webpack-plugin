@@ -26,6 +26,10 @@ const implicitlyColorProperty = [
 const implicitlyColorPropertyRegex = new RegExp(`^(?:${implicitlyColorProperty.join('|')})$`, 'i')
 const imageUrlRegex = /url\(\s*(['"]?)[^'"\s]+?\1\s*\)|(?:-webkit-)?image-set\(/
 
+export function hasResourceURL(value: string) {
+  return imageUrlRegex.test(value)
+}
+
 export function isColorName(name: string) {
   return typeof (name as any) === 'string'
     ? isCssColor.isKeyword(name) || isCssColor.isTransparent(name)

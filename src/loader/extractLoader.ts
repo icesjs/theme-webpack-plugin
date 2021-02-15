@@ -1,10 +1,10 @@
+import * as path from 'path'
 import { format } from 'util'
 import { interpolateName } from 'loader-utils'
 import { PluginLoader } from '../Plugin'
 import { hasOwnProperty, normalizePublicPath } from '../lib/utils'
 import exec from '../lib/vm'
 import { ValidPluginOptions } from '../options'
-import path from 'path'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 type PitchFunction = import('webpack').loader.Loader['pitch']
@@ -88,11 +88,11 @@ function getPublicPathCallback(
   const { resourcePath, rootContext } = loaderContext
   const { resourcePublicPath, resourceFilter } = options
   const filter = formatResourceFilter(loaderContext, resourceFilter)
-  return (file: string) => {
+  return async (file: string) => {
     let publicPath
     if (filter(file)) {
       if (typeof resourcePublicPath === 'function') {
-        publicPath = resourcePublicPath(file, resourcePath, rootContext)
+        publicPath = await resourcePublicPath(file, resourcePath, rootContext)
       } else if (typeof resourcePublicPath === 'string') {
         publicPath = resourcePublicPath
       } else {
@@ -106,10 +106,7 @@ function getPublicPathCallback(
 }
 
 // 获取主题引用资源的发布路径，该路径对于css中资源引用(url(xxx))的路径很重要
-function getResourcePublicPath(
-  loaderContext: LoaderContext,
-  source: string
-): string | ((file: string) => string) {
+function getResourcePublicPath(loaderContext: LoaderContext, source: string) {
   const pluginOptions = extractLoader.getPluginOptions!()
   const { resourceFilter, resourcePublicPath } = pluginOptions
   const compilerOptions = extractLoader.getCompilerOptions!()

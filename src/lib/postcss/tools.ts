@@ -6,34 +6,39 @@ import { isColorValue } from '../colors'
 export const pluginName = 'postcss-extract-theme-vars'
 
 export interface ThemeVarsMessage {
-  plugin: typeof pluginName
-  type: 'theme-vars' | 'theme-root-vars' | 'theme-context'
-  ident: string
-  originalName: string
-  value: string
-  originalValue: string
+  plugin: typeof pluginName // 当前插件的名称
+  type: 'theme-vars' | 'theme-root-vars' | 'theme-context' | 'theme-url-vars' // 消息类型
+  ident: string // 属性名hash标识名
+  originalName: string // 属性原始名称
+  value: string // 变量解析后的值
+  originalValue: string // 属性原始值
+  isRootDecl: boolean // 是否是:root{}下的属性声明
   dependencies?: Set<string> // 消息里依赖列表里的值是ident值
+  from?: string // 来源文件路径
+  data?: any // 额外的数据
 }
 
 export type ThemePropertyMatcher = readonly [RegExp, RegExp, RegExp]
 
-// name是原来的名称，
-export type VarsDict = Map<
-  string,
-  {
-    ident: string
-    originalName: string
-    value: string
-    originalValue: string
-    dependencies: Set<string>
-    isTheme: boolean
-  }
->
+export interface VarsDictItem extends Omit<ThemeVarsMessage, 'type' | 'plugin'> {
+  isTheme: boolean
+  dependencies: Set<string>
+}
+
+export interface URLVarsDictItem extends VarsDictItem {
+  data: Set<string>
+  from: string
+}
+
+export type VarsDict = Map<string, VarsDictItem>
+
+export type URLVarsDict = Map<string, URLVarsDictItem>
 
 export interface ThemeLoaderData {
   themeMessages?: ThemeVarsMessage[]
   contextMessages?: ThemeVarsMessage[]
   variablesMessages?: ThemeVarsMessage[]
+  urlMessages?: ThemeVarsMessage[]
 }
 
 export interface ExtractVarsPluginOptions extends ThemeLoaderData {
@@ -44,16 +49,10 @@ export interface ExtractVarsPluginOptions extends ThemeLoaderData {
   messages?: ThemeVarsMessage[]
 }
 
-export type RefVars = {
-  ident: string
-  originalName: string
-  value: string
-  originalValue: string
-  dependencies: Set<string>
-}
+export type RefVars = VarsDictItem
 
 type VariablesContext = Map<
-  string,
+  string, // 这里的键是属性名（非ID）
   {
     ident: string
     value: string
@@ -61,6 +60,7 @@ type VariablesContext = Map<
     originalValue: string
     isRootDecl: boolean
     dependencies: Set<string>
+    decl: Declaration
   }
 >
 
@@ -68,6 +68,7 @@ type VariablesContainer = {
   themeVars: VarsDict | null
   context: VarsDict | null
   variables: VarsDict | null
+  urlVars: URLVarsDict
   references: Map<string, RefVars>
 }
 
@@ -81,9 +82,18 @@ export function pluginFactory(
   options: ExtractVarsPluginOptions,
   createPlugin: (context: PluginContext) => Omit<Plugin, 'postcssPlugin'>
 ) {
-  const { syntax, onlyColor, themeMessages, contextMessages, variablesMessages, ...rest } = options
+  const {
+    syntax,
+    onlyColor,
+    urlMessages,
+    themeMessages,
+    contextMessages,
+    variablesMessages,
+    ...rest
+  } = options
   const contextDict = toVarsDict(contextMessages || null, false)
   const variablesDict = toVarsDict(variablesMessages || null, false)
+  const urlVars = toVarsDict(urlMessages || null, false) || new Map<string, URLVarsDictItem>()
   return {
     ...createPlugin({
       ...rest,
@@ -95,6 +105,7 @@ export function pluginFactory(
         variables: variablesDict,
         themeVars: toVarsDict(themeMessages || null, true),
         references: getReferenceVars(contextDict, variablesDict),
+        urlVars: urlVars as URLVarsDict,
       },
     }),
     postcssPlugin: pluginName,
@@ -235,17 +246,7 @@ export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean
   if (!messages) {
     return null
   }
-  const vars: VarsDict = new Map<
-    string,
-    {
-      ident: string
-      originalName: string
-      value: string
-      originalValue: string
-      dependencies: Set<string>
-      isTheme: boolean
-    }
-  >()
+  const vars: VarsDict = new Map<string, VarsDictItem>()
   for (const { ident, type, plugin, dependencies = new Set<string>(), ...rest } of messages) {
     vars.set(ident, {
       ...rest,
@@ -255,6 +256,35 @@ export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean
     })
   }
   return vars
+}
+
+// 解析属性声明值里的URL路径
+export function parseUrlPaths(value: string) {
+  const paths = new Set<string>()
+  valueParser(value).walk((node) => {
+    if (
+      node.type !== 'function' ||
+      !(node.value === 'url' || /(?:-webkit-)?image-set/.test(node.value))
+    ) {
+      return
+    }
+    if (node.value === 'url') {
+      const { nodes } = node
+      if (nodes.length !== 0 && nodes[0].type === 'string') {
+        paths.add(nodes[0].value)
+      } else {
+        paths.add(valueParser.stringify(nodes))
+      }
+    } else {
+      valueParser.walk(node.nodes, (child) => {
+        if (child.type === 'string' && child.value) {
+          paths.add(child.value)
+        }
+      })
+    }
+  })
+
+  return new Set([...paths].filter((path) => path.trim()))
 }
 
 // 获取引用类型变量
@@ -284,6 +314,7 @@ function addTopScopeVariable(
     value: varDecl.value,
     originalValue: varDecl.value,
     isRootDecl,
+    decl: varDecl,
   })
 }
 

@@ -1,8 +1,10 @@
 import { Comment, Rule } from 'postcss'
+import { hasResourceURL } from '../colors'
 import {
   determineCanUseAsThemeVarsByValue,
   ExtractVarsPluginOptions,
   getTopScopeVariables,
+  parseUrlPaths,
   pluginFactory,
   toVarsDict,
 } from './tools'
@@ -23,12 +25,12 @@ export function extractThemeVarsPlugin(options: ExtractVarsPluginOptions) {
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
       // 处理顶层变量
-      for (const [varName, { value, originalValue, isRootDecl }] of variables) {
+      for (const { value, isRootDecl, ...rest } of variables.values()) {
         if (determineCanUseAsThemeVarsByValue(value, onlyColor)) {
           setVarsMessage({
-            originalName: varName,
-            originalValue,
+            ...rest,
             value,
+            isRootDecl,
             helper,
             type: isRootDecl ? 'theme-root-vars' : 'theme-vars',
           })
@@ -48,9 +50,9 @@ export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
       // 这里不对值进行引用解析，是因为此时并不知道上下文中所有可用的变量
       // 如果现在就进行解析，则如果本地变量引用了从其他文件导入的变量，则会引用失败
       const context = getTopScopeVariables(root, regExps, null, false)
-      for (const [varName, { originalValue }] of context) {
+      for (const { originalValue, ...rest } of context.values()) {
         setVarsMessage({
-          originalName: varName,
+          ...rest,
           originalValue,
           // 这里当前值没有作解析处理，期待在extractVariablesPlugin里面进行
           // 得等到导入文件解析完成后，再进行解析
@@ -69,11 +71,11 @@ export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
 export function extractVariablesPlugin(options: ExtractVarsPluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
-      // 重设当前上下文本地变量的值
       const variables = getTopScopeVariables(root, regExps)
       const messages = helper.result.messages
       for (const msg of getVarsMessages(messages, 'theme-context')) {
         const parsedVariable = variables.get(msg.originalName)
+        // 重设当前上下文本地变量的值
         if (parsedVariable) {
           // 本地变量有可能引用的所有变量全部来自主题变量
           // 这种情况下，该本地变量也应该算成主题变量
@@ -102,14 +104,11 @@ export function extractTopScopeVarsPlugin(options: ExtractVarsPluginOptions) {
   return pluginFactory(options, ({ regExps, parseValue = true }) => ({
     OnceExit: async (root, helper) => {
       for (const vars of getTopScopeVariables(root, regExps, null, parseValue).values()) {
-        const { originalName, value, originalValue, dependencies, isRootDecl } = vars
+        const { isRootDecl } = vars
         setVarsMessage({
-          originalName,
-          originalValue,
-          value,
+          ...vars,
           helper,
           type: isRootDecl ? 'theme-root-vars' : 'theme-vars',
-          dependencies,
         })
       }
     },
@@ -123,11 +122,12 @@ export function extractTopScopeVarsPlugin(options: ExtractVarsPluginOptions) {
 export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
   return pluginFactory(options, ({ regExps, onlyColor, vars, syntax }) => ({
     OnceExit: async (root, helper) => {
-      const { themeVars, variables, context, references } = vars
+      const { themeVars, variables, context, references, urlVars } = vars
       let node: Rule | Comment | null = null
       if (themeVars) {
         node = createVarsRootRuleNode({
           properties: themeVars,
+          urlVars,
           syntax,
           regExps,
           helper,
@@ -135,7 +135,13 @@ export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
       } else if (variables && context) {
         // 进行迭代
         root.walkDecls(
-          getDeclProcessor(onlyColor, syntax, { variables, context, references }, regExps, helper)
+          getDeclProcessor(
+            onlyColor,
+            syntax,
+            { variables, context, urlVars, references },
+            regExps,
+            helper
+          )
         )
 
         // 这里仅生成变量声明注释，方便调试
@@ -143,6 +149,7 @@ export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
         node = createVarsRootRuleNode({
           properties: toVarsDict(getVarsMessages(helper.result.messages, 'theme-vars'), false)!,
           asComment: true, // 以注释形式插入
+          urlVars,
           syntax,
           regExps,
           helper,
@@ -184,6 +191,35 @@ export function exportVarsPlugin(options: ExtractVarsPluginOptions) {
             root.append(rootRule)
           }
           rootRule.append(decl)
+        }
+      }
+    },
+  }))
+}
+
+// 提取外部资源引用URL变量
+export function extractURLVars(options: ExtractVarsPluginOptions) {
+  return pluginFactory(options, ({ regExps }) => ({
+    OnceExit: async (root, helper) => {
+      const sourceFile = root.source?.input.file || helper.result.opts.from
+      if (!sourceFile) {
+        return
+      }
+      const vars = getTopScopeVariables(root, regExps)
+      for (const { value, decl, ...rest } of vars.values()) {
+        if (!hasResourceURL(value)) {
+          continue
+        }
+        const paths = parseUrlPaths(value)
+        if (paths.size) {
+          setVarsMessage({
+            ...rest,
+            value,
+            helper,
+            type: 'theme-url-vars',
+            from: sourceFile,
+            data: paths,
+          })
         }
       }
     },

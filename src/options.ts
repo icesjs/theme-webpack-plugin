@@ -79,15 +79,18 @@ export interface PluginOptions {
    */
   outputPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
-   * 主题文件的发布部署路径。默认为 __webpack_public_path__ + outputPath
+   * 主题文件的发布部署路径。默认为 __webpack_public_path__ + outputPath<br>
+   * 这个属性的值影响js代码里面保存的主题样式文件的路径值。js代码里动态插入<code>link</code>标签到页面上时，标签的<code>href</code>引用地址就与这个属性有关。
    */
   publicPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
    * 资源文件的相对部署路径。资源文件指在主题文件中引用的url资源，比如图片，字体等。<br>
    * 默认为从主题文件本身的输出目录回退到构建输出目录的相对路径。因为资源文件一般是相对于主题文件本身路径引用的，所以是相对路径。比如，
-   * 主题文件相对构建目录输出路径为 <code>static/themes/dark.css</code>，则资源部署路径被设置为<code>../../</code><br>
+   * 主题文件相对构建目录输出路径为 <code>static/themes/dark.css</code>，则资源部署路径被设置为 <code>../../</code><br>
    * 如果默认的设置不符合需求，可以通过此项配置设置一个固定的值，或者使用一个函数根据参数返回资源的相对部署路径。<br>
-   * 可以使用异步函数返回 <code>Promise</code>。
+   * 注意，这个配置项影响的是样式文件自身内部对图片、字体等外部资源的引用关系。各种乱七八糟的路径很容易搞混淆搞错，要特别注意。<br>
+   * 还有一点是，默认的主题文件是直接打包到应用的样式文件里去的，对外部资源的引用处理一般由css-loader、url-loader以及file-loader处理，而没有经过主题插件的处理。
+   * 如果默认主题文件里也有图片等外部资源引用，而且需要自定义资源发布部署路径时，需要到应用自身的样式模块配置(一般是loader配置)里去自定义。<br>
    */
   resourcePublicPath?:
     | string

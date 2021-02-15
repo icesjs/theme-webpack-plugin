@@ -9,7 +9,7 @@ const virtualModuleSymbol = Symbol('__virtualModule')
 const publicPathSymbol = Symbol('__publicPath')
 
 type LoaderContext = import('webpack').loader.LoaderContext
-type PublicPath = string | ((file: string) => string)
+type PublicPath = string | ((file: string) => Promise<string>)
 
 type VirtualModuleExports = {
   readonly [virtualModuleSymbol]: symbol
