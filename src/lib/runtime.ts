@@ -162,7 +162,7 @@ function defineTheme(name: string, initPath: string) {
   ) as Theme
 }
 
-function useThemes(themes: { name: string; path: string }[], defaultTheme: string) {
+function registerThemes(themes: { name: string; path: string }[], defaultTheme: string) {
   defaultThemeName = defaultTheme
   var definedThemes = themes.map(function (item) {
     var theme
@@ -190,4 +190,4 @@ function useThemes(themes: { name: string; path: string }[], defaultTheme: strin
   return definedThemes
 }
 
-export default useThemes
+export default registerThemes
