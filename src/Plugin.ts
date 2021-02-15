@@ -21,12 +21,13 @@ import { getOptions, PluginOptions, resolveDefaultExportPath, ValidPluginOptions
 export type WebpackLoader = import('webpack').loader.Loader
 type CompilerOutput = NonNullable<WebpackOutput>
 
-type CompilerOptions = {
+export type CompilerOptions = {
   readonly output: CompilerOutput
 }
 
 export interface PluginLoader extends WebpackLoader {
   filepath: string
+  getThemeFiles?: () => string[]
   getPluginOptions?: () => ValidPluginOptions
   getCompilerOptions?: () => CompilerOptions
 }
@@ -40,11 +41,18 @@ class ThemeWebpackPlugin implements WebpackPlugin {
 
   constructor(opts?: PluginOptions) {
     this.options = getOptions(opts)
-    themeLoader.getPluginOptions = () => ({ ...this.options })
-    extractLoader.getPluginOptions = () => ({ ...this.options })
-    extractLoader.getCompilerOptions = () => ({
-      output: { ...this.compilerOutput },
-    })
+
+    // 注入插件方法到内部loader
+    for (const [name, method] of [
+      ['getThemeFiles', () => [...this.themeFiles.values()]],
+      ['getPluginOptions', () => ({ ...this.options })],
+      ['getCompilerOptions', () => ({ output: { ...this.compilerOutput } })],
+    ]) {
+      for (const loader of [varsLoader, extractLoader, themeLoader]) {
+        ;(loader as any)[name as string] = method
+      }
+    }
+
     this.resetThemeModule()
   }
 
@@ -108,7 +116,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     const { themeExportPath, esModule } = this.options
     const defaultExportPath = resolveDefaultExportPath()
     const content = `
-const themes = []
+var themes = []
 ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
 
     this.writeToThemeModule(themeExportPath, content, true)
@@ -333,7 +341,6 @@ ${''.padEnd(8)}}`
     return {
       loader: varsLoader.filepath,
       options: {
-        getThemeFiles: () => [...this.themeFiles.values()],
         cssModules: cssModules === 'auto' ? isCssRule(rule, { onlyModule: true }) : cssModules,
         token: this.themeRequestToken,
         onlyColor,

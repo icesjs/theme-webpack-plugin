@@ -91,8 +91,12 @@ export interface PluginOptions {
    */
   resourcePublicPath?:
     | string
-    | ((externalFile: string, resourcePath: string, projectContext: string) => string)
-    | ((externalFile: string, resourcePath: string, projectContext: string) => Promise<string>)
+    | ((
+        externalFile: string,
+        resourcePath: string,
+        projectContext: string
+      ) => string | Promise<string>)
+
   /**
    * 需要计算相对部署路径的资源文件的筛选规则。默认根据资源扩展名称筛选图片、字体等文件。
    */

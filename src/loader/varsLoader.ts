@@ -26,7 +26,6 @@ export interface VarsLoaderOptions {
   onlyColor: boolean
   syntax: string
   token: string
-  getThemeFiles: () => string[]
 }
 
 interface LoaderData extends ThemeLoaderData {
@@ -156,7 +155,7 @@ function getCommonPlugins(loaderContext: LoaderContext, importOptions: AtImportO
 }
 
 // 抽取变量并返回样式定义
-async function extractTopScopeVars(loaderContext: LoaderContext, source: string) {
+async function extractTopScopeVars(loaderContext: LoaderContext, source: string, filename: string) {
   const { syntaxPlugin, options } = loaderContext.data
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
@@ -168,7 +167,7 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string)
   ])
     .process(source, {
       syntax: syntaxPlugin,
-      from: loaderContext.resourcePath,
+      from: filename,
       map: false,
     })
     .then(({ messages }) => getThemeVarsMessages(messages))
@@ -213,7 +212,7 @@ function getPostcssPlugins(loaderContext: LoaderContext) {
       load: async (filename) =>
         isThemeFile(filename, themeFiles)
           ? // 如果是对主题文件的导入，则对其进行变量抽取
-            extractTopScopeVars(loaderContext, await readFile(filename, fileSystem))
+            extractTopScopeVars(loaderContext, await readFile(filename, fileSystem), filename)
           : // 非主题文件，使用webpack缓存文件系统读取文件
             readFile(filename, fileSystem),
     }
@@ -240,8 +239,8 @@ function defineLoaderData(context: WebpackLoaderContext) {
   const { resourcePath, resourceQuery, data } = context
   const { token } = getQueryObject(resourceQuery)
   const options = getLoaderOptions(context)
-  const { getThemeFiles, syntax, token: themeToken } = options
-  const themeFiles = getThemeFiles()
+  const { syntax, token: themeToken } = options
+  const themeFiles = varsLoader.getThemeFiles!()
 
   // 定义上下文数据，只读，且不能被遍历，不能被删除
   return Object.defineProperties(data, {
@@ -288,7 +287,7 @@ export const pitch: PluginLoader['pitch'] = function () {
       if (!isThemeRequest) {
         // 由用户自己导入的主题文件
         // 抽取变量，替换样式文件
-        return extractTopScopeVars(loaderContext, source)
+        return extractTopScopeVars(loaderContext, source, resourcePath)
       }
     }
 
