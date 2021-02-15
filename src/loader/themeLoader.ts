@@ -2,12 +2,12 @@ import { stringifyRequest } from 'loader-utils'
 import { selfModuleName } from '../lib/selfContext'
 import { isFromModule } from '../lib/resolve'
 import { PluginLoader } from '../Plugin'
-import { getQueryObject } from '../lib/utils'
 import extractLoader from './extractLoader'
+import { ValidPluginOptions } from '../options'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
-function checkAndSetLoader(loaderContext: LoaderContext) {
+function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPluginOptions) {
   const { loaders } = loaderContext
 
   for (const loader of [...loaders]) {
@@ -30,8 +30,7 @@ function checkAndSetLoader(loaderContext: LoaderContext) {
     }
   }
 
-  const { esModule, publicPath, outputPath, filename } = themeLoader.getPluginOptions!()
-
+  const { esModule, publicPath, outputPath, filename } = pluginOptions
   // 添加loader
   loaders.splice(
     1, // 0号索引为当前theme-loader，我们添加新loader到当前loader的后面
@@ -61,9 +60,10 @@ function getThemeResource(loaderContext: LoaderContext) {
 }
 
 export const pitch: PluginLoader['pitch'] = function () {
-  const { loaders, resourceQuery } = this
-  const { esModule } = getQueryObject(resourceQuery)
+  const pluginOptions = themeLoader.getPluginOptions!()
+  const { loaders } = this
   if (loaders.length < 2) {
+    const { esModule } = pluginOptions
     // 首次由主题模块请求进入
     // 模块默认导出的是通过file-loader发布资源后的资源路径
     // 变量的抽取将由vars-loader处理
@@ -76,7 +76,7 @@ export const pitch: PluginLoader['pitch'] = function () {
   } else {
     // 转发资源请求时进入
     // 检查并添加新的loader
-    checkAndSetLoader(this)
+    checkAndSetLoader(this, pluginOptions)
     // 执行loader链
     this.callback(null)
   }

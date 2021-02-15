@@ -1,14 +1,15 @@
 import vm from 'vm'
 import * as path from 'path'
 import * as babel from '@babel/core'
-import { PluginItem, PluginObj } from '@babel/core'
-import * as types from '@babel/types'
-import asyncConverter from './asyncConverter'
+import { PluginItem } from '@babel/core'
+import { toAsyncFunction, toCallExpression } from './asyncConverter'
 import { hasOwnProperty, isEsModuleExport } from './utils'
 
 const virtualModuleSymbol = Symbol('__virtualModule')
+const publicPathSymbol = Symbol('__publicPath')
 
 type LoaderContext = import('webpack').loader.LoaderContext
+type PublicPath = string | ((file: string) => string)
 
 type VirtualModuleExports = {
   readonly [virtualModuleSymbol]: symbol
@@ -77,32 +78,13 @@ function transformCode(originalCode: string, plugins: PluginItem[] = []) {
   )
 }
 
-// 将全局标识符转为函数调用
-// 主要是转换 __webpack_public_path__
-function toCallExpression(name: string, args: string[]) {
-  return {
-    visitor: {
-      Identifier(path) {
-        if (!types.isIdentifier(path.node, { name }) || types.isCallExpression(path.parentPath)) {
-          return
-        }
-        path.replaceWith(
-          types.callExpression(
-            path.node,
-            args.map((arg) => types.stringLiteral(arg))
-          )
-        )
-      },
-    },
-  } as PluginObj
-}
-
 // 获取代码转换插件
 function getTransformPlugin(loaderContext: LoaderContext, module: VirtualModule) {
-  const plugin = [asyncConverter(['require', '__webpack_require__'])]
+  const plugin = [toAsyncFunction(['require', '__webpack_require__', '__webpack_public_path__'])]
   const publicPath = getPublicPath(loaderContext)
   if (typeof publicPath === 'function') {
-    plugin.push(toCallExpression('__webpack_public_path__', [module.id]))
+    // 添加toAsyncFunction插件前面先处理
+    plugin.unshift(toCallExpression('__webpack_public_path__', [module.id]))
   }
   return plugin
 }
@@ -133,10 +115,16 @@ function evalModuleCode(
   })
 }
 
+// 存储publicPath值
+function setPublicPath(loaderContext: LoaderContext, publicPath: PublicPath) {
+  const { data } = loaderContext
+  Object.defineProperty(data, publicPathSymbol, { value: publicPath })
+}
+
 // 获取publicPath值
 function getPublicPath(loaderContext: LoaderContext) {
   const { data } = loaderContext
-  return data.publicPath
+  return Reflect.get(data, publicPathSymbol)
 }
 
 // 清理缓存
@@ -158,6 +146,7 @@ function getModuleCache(loaderContext: LoaderContext) {
 // 从缓存中获取模块
 function getModuleFromCache(loaderContext: LoaderContext, id: string) {
   const cache = getModuleCache(loaderContext)
+  id = path.normalize(id || '')
   if (cache.has(id)) {
     return cache.get(id)
   }
@@ -323,13 +312,9 @@ function createVirtualWebpackModule(
  * @param source loader处理的源代码
  * @param publicPath 引用资源的部署相对路径
  */
-export default function exec(
-  loaderContext: LoaderContext,
-  source: string,
-  publicPath: string | ((file: string) => string)
-) {
-  const { resourcePath, data } = loaderContext
-  Object.defineProperty(data, 'publicPath', { value: publicPath })
+export default function exec(loaderContext: LoaderContext, source: string, publicPath: PublicPath) {
+  const { resourcePath } = loaderContext
+  setPublicPath(loaderContext, publicPath)
   //
   return new Promise((resolve: (value: any) => void, reject) =>
     evalModuleCode(

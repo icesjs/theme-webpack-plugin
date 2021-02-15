@@ -12,11 +12,11 @@ import * as fs from 'fs'
 import * as path from 'path'
 import globby from 'globby'
 import { findLoader, isCssRule } from '@ices/use-loader'
-import { getFileThemeName, getToken, isStylesheet } from './lib/utils'
+import { getFileThemeName, getToken, isSamePath, isStylesheet } from './lib/utils'
 import varsLoader, { VarsLoaderOptions } from './loader/varsLoader'
 import extractLoader from './loader/extractLoader'
 import themeLoader from './loader/themeLoader'
-import { getOptions, PluginOptions } from './options'
+import { getOptions, PluginOptions, resolveDefaultExportPath, ValidPluginOptions } from './options'
 
 export type WebpackLoader = import('webpack').loader.Loader
 type CompilerOutput = NonNullable<WebpackOutput>
@@ -27,13 +27,13 @@ type CompilerOptions = {
 
 export interface PluginLoader extends WebpackLoader {
   filepath: string
-  getPluginOptions?: () => PluginOptions
+  getPluginOptions?: () => ValidPluginOptions
   getCompilerOptions?: () => CompilerOptions
 }
 
 //
 class ThemeWebpackPlugin implements WebpackPlugin {
-  private readonly options: PluginOptions
+  private readonly options: ValidPluginOptions
   private readonly themeFiles = new Set<string>()
   private readonly themeRequestToken = getToken()
   private compilerOutput: CompilerOutput = {}
@@ -45,6 +45,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     extractLoader.getCompilerOptions = () => ({
       output: { ...this.compilerOutput },
     })
+    this.resetThemeModule()
   }
 
   // 使用 webpack 插件
@@ -69,7 +70,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   }
 
   // 创建主题模块
-  async createThemeModule(context: string, watchMode: boolean) {
+  private async createThemeModule(context: string, watchMode: boolean) {
     const { defaultTheme, themeExportPath } = this.options
     const themeFiles = await this.getThemeFiles(context)
     if (
@@ -86,10 +87,35 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     }
     const code = this.getThemeModuleCode(themeFiles, validDefaultTheme || '', watchMode)
 
-    await promisify(fs.writeFile)(themeExportPath!, code).catch((err) => {
+    await this.writeToThemeModule(themeExportPath, code).catch((err) => {
       this.themeFiles.clear()
       throw err
     })
+  }
+
+  // 写入主题模块文件
+  private writeToThemeModule(filePath: string, content: string): Promise<any>
+  private writeToThemeModule(filePath: string, content: string, sync: boolean): void
+  private writeToThemeModule(filePath: string, content: string, sync = false) {
+    if (sync) {
+      return fs.writeFileSync(filePath, content)
+    }
+    return promisify(fs.writeFile)(filePath, content)
+  }
+
+  // 重置主题模块
+  private resetThemeModule() {
+    const { themeExportPath, esModule } = this.options
+    const defaultExportPath = resolveDefaultExportPath()
+    const content = `
+const themes = []
+${esModule ? 'export default themes' : 'module.exports = themes'}\n`
+
+    this.writeToThemeModule(themeExportPath, content, true)
+
+    if (!isSamePath(themeExportPath, defaultExportPath)) {
+      this.writeToThemeModule(defaultExportPath, content, true)
+    }
   }
 
   private getThemeModuleCode(themeFiles: string[], defaultTheme: string, watchMode: boolean) {
@@ -119,7 +145,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
 
       const originalResource = `${
         !isDefault ? `!!${themeLoader.filepath}!` : ''
-      }${file}?esModule=${esModule}&token=${themeRequestToken}`
+      }${file}?token=${themeRequestToken}`
       const resource = JSON.stringify(originalResource)
 
       hotUpdateResources.push({ name, path: originalResource })
@@ -146,7 +172,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   }
 
   // 获取支持热更新的代码
-  getHotModuleReplaceCode(
+  private getHotModuleReplaceCode(
     hot: boolean,
     resources: { name: string; path: string }[],
     defaultTheme: string
@@ -156,6 +182,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     }
     return `
 if (module.hot) {
+  // 主题样式文件内容有更新，则重新加载样式
   module.hot.accept(
     //
     ${JSON.stringify(resources.map(({ path }) => path))},
@@ -183,15 +210,15 @@ if (module.hot) {
     }
     //
   )
-  //
+  // 主题模块更新则刷新页面
   module.hot.decline()
 }`
   }
 
   // 根据路径模式，获取主题变量声明文件
-  async getThemeFiles(context: string = process.cwd()) {
+  private async getThemeFiles(context: string = process.cwd()) {
     const { themes, themeFilter } = this.options
-    const patterns = (Array.isArray(themes) ? themes : [themes!]).map((file) =>
+    const patterns = (Array.isArray(themes) ? themes : [themes]).map((file) =>
       file.replace(/\\/g, '/')
     )
     return (
@@ -286,8 +313,8 @@ if (module.hot) {
       options: {
         getThemeFiles: () => [...this.themeFiles.values()],
         cssModules: cssModules === 'auto' ? isCssRule(rule, { onlyModule: true }) : cssModules,
-        onlyColor: !!onlyColor,
         token: this.themeRequestToken,
+        onlyColor,
         syntax,
       } as VarsLoaderOptions,
     }

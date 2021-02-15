@@ -59,13 +59,13 @@ function toAwaitCallExpression(path: NodePath<CallExpression>) {
   const parent = path.getFunctionParent()!
   const { node: func } = parent
   if (!func.async) {
-    toAsyncFunction(parent)
+    toAsyncFunctionDeclaration(parent)
   }
   path.replaceWith(types.awaitExpression(path.node))
 }
 
-// 转换异步函数
-function toAsyncFunction(path: NodePath<BabelFunction>) {
+// 转换异步函数声明
+function toAsyncFunctionDeclaration(path: NodePath<BabelFunction>) {
   const { node: func, context } = path
   func.async = true
   for (const name of getFunctionDeclarationReferences(path)) {
@@ -83,18 +83,38 @@ function toAsyncFunction(path: NodePath<BabelFunction>) {
 }
 
 // babel插件
-// 将全局方法，转换为异步调用形式
-// 这里仅限全局方法，而且暂时也只需要处理全局方法
-export default function (globalMethods: string[]) {
+// 将全局函数，转换为异步调用形式
+// 这里仅限全局函数，而且暂时也只需要处理全局方法
+export function toAsyncFunction(globalFunctions: string[]) {
   return {
     visitor: {
       CallExpression(path) {
         const { callee } = path.node
-        for (const name of globalMethods) {
+        for (const name of globalFunctions) {
           if (types.isIdentifier(callee, { name })) {
             toAwaitCallExpression(path)
           }
         }
+      },
+    },
+  } as PluginObj
+}
+
+// 将全局标识符转为函数调用
+// 主要是转换 __webpack_public_path__ 等
+export function toCallExpression(name: string, args: string[]) {
+  return {
+    visitor: {
+      Identifier(path) {
+        if (!types.isIdentifier(path.node, { name }) || types.isCallExpression(path.parentPath)) {
+          return
+        }
+        path.replaceWith(
+          types.callExpression(
+            path.node,
+            args.map((arg) => types.stringLiteral(arg))
+          )
+        )
       },
     },
   } as PluginObj

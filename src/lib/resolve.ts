@@ -35,7 +35,7 @@ export async function resolveStyle(
       })
     } catch (err) {}
   }
-  throwModuleNotFoundError(id, targets)
+  throwModuleNotFoundError(id, context, targets)
 }
 
 export function getModuleFromCache(name: string) {
@@ -186,9 +186,9 @@ function getStyleTargets(id: string, extensions: string[]) {
   return normalizeTargets(targets)
 }
 
-function throwModuleNotFoundError(name: string, paths: string[]): never {
+function throwModuleNotFoundError(name: string, context: string, paths: string[]): never {
   const error = new Error(`Can't resolve '${name}'
-  in [${paths.join(',\n        ')}]`)
+  in [ ${paths.join(',\n        ')} ] from ${path.relative(process.cwd(), context)}`)
   Object.defineProperty(error, 'code', {
     value: 'MODULE_NOT_FOUND',
   })

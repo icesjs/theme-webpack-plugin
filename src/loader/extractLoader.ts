@@ -3,7 +3,7 @@ import { interpolateName } from 'loader-utils'
 import { PluginLoader } from '../Plugin'
 import { hasOwnProperty, normalizePublicPath } from '../lib/utils'
 import exec from '../lib/vm'
-import { PluginOptions } from '../options'
+import { ValidPluginOptions } from '../options'
 import path from 'path'
 
 type LoaderContext = import('webpack').loader.LoaderContext
@@ -23,7 +23,11 @@ function getCssContent(exports: any) {
 }
 
 // 获取当前模块文件的构建输出路径
-function getCssOutputPath(loaderContext: LoaderContext, source: string, options: PluginOptions) {
+function getCssOutputPath(
+  loaderContext: LoaderContext,
+  source: string,
+  options: ValidPluginOptions
+) {
   const { rootContext, resourcePath } = loaderContext
   const { filename, outputPath } = options
   const file = interpolateName(loaderContext, filename as string, {
@@ -46,7 +50,7 @@ function getCssOutputPath(loaderContext: LoaderContext, source: string, options:
 // 获取资源过滤函数
 function formatResourceFilter(
   loaderContext: LoaderContext,
-  resourceFilter: PluginOptions['resourceFilter']
+  resourceFilter: ValidPluginOptions['resourceFilter']
 ) {
   const { resourcePath } = loaderContext
   if (!resourceFilter) {
@@ -68,7 +72,7 @@ function getDefaultPublicPath(
   loaderContext: LoaderContext,
   source: string,
   outputPath: string,
-  options: PluginOptions
+  options: ValidPluginOptions
 ) {
   const cssOutputPath = getCssOutputPath(loaderContext, source, options)
   return path.relative(path.join(outputPath, path.dirname(cssOutputPath)), outputPath)
@@ -79,7 +83,7 @@ function getPublicPathCallback(
   loaderContext: LoaderContext,
   defaultPublicPath: string,
   outputPublicPath: string,
-  options: PluginOptions
+  options: ValidPluginOptions
 ) {
   const { resourcePath, rootContext } = loaderContext
   const { resourcePublicPath, resourceFilter } = options

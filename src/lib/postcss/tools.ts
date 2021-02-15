@@ -188,29 +188,13 @@ export function getTopScopeVariables(
       }
       const varNode = decl as Declaration
       if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
-        const dependencies = new Set<string>()
-        variables.set(varNode.prop, {
-          ident: makeVariableIdent(varNode.prop),
-          originalName: varNode.prop,
-          value: varNode.value,
-          originalValue: varNode.value,
-          isRootDecl: false,
-          dependencies,
-        })
+        addTopScopeVariable(variables, varNode, false)
       }
     } else if (node.type === 'rule' && node.selector === ':root') {
       // :root {--prop: value}
       for (const rNode of node.nodes) {
         if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
-          const dependencies = new Set<string>()
-          variables.set(rNode.prop, {
-            ident: makeVariableIdent(rNode.prop),
-            originalName: rNode.prop,
-            value: rNode.value,
-            originalValue: rNode.value,
-            isRootDecl: true,
-            dependencies,
-          })
+          addTopScopeVariable(variables, rNode, true)
         }
       }
     }
@@ -285,6 +269,22 @@ function getReferenceVars(contextDict: VarsDict | null, variablesDict: VarsDict 
     }
   }
   return refs
+}
+
+// 添加顶层作用域变量到变量上下文
+function addTopScopeVariable(
+  variables: VariablesContext,
+  varDecl: Declaration,
+  isRootDecl: boolean
+) {
+  variables.set(varDecl.prop, {
+    ident: makeVariableIdent(varDecl.prop),
+    dependencies: new Set<string>(),
+    originalName: varDecl.prop,
+    value: varDecl.value,
+    originalValue: varDecl.value,
+    isRootDecl,
+  })
 }
 
 // 获取变量值

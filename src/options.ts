@@ -54,7 +54,7 @@ export interface PluginOptions {
    * 颜色值包括颜色名称（比如 <code>green</code> 代表绿色，<code>transparent</code> 代表透明色），
    * 以及符合 <code>Web</code> 标准的颜色代码
    * （比如 <code>#fff</code>、<code>rgb</code>、<code>rgba</code>、<code>hsl</code>）等等。
-   * <br>
+   * 另外，图片属性也会被当成“颜色值”来处理。也即可以通过主题来更换背景图片。<br>
    * 如果变量的引用不是来自于主题文件，则此变量不会被抽取，所以，你的样式文件还是需要导入要使用的主题样式文件的。<br>
    * 可被当成主题变量抽取的变量声明，含特定语法的变量声明（比如：$scss-var:xxx、@less-var:xxx）以及定义在<code>:root</code>规则上的css自定义属性
    * （<code>:root{--my-prop:xxx}</code>）<br>
@@ -74,23 +74,25 @@ export interface PluginOptions {
    */
   filename?: string | ((resourcePath: string, resourceQuery: string) => string)
   /**
-   * 主题发布目录。相对于构建输出目录。<br>
+   * 主题文件发布目录。相对于构建输出目录。<br>
    * 默认为 themes。
    */
   outputPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
-   * 服务器部署路径。默认为 __webpack_public_path__ + outputPath
+   * 主题文件的发布部署路径。默认为 __webpack_public_path__ + outputPath
    */
   publicPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
    * 资源文件的相对部署路径。资源文件指在主题文件中引用的url资源，比如图片，字体等。<br>
    * 默认为从主题文件本身的输出目录回退到构建输出目录的相对路径。因为资源文件一般是相对于主题文件本身路径引用的，所以是相对路径。比如，
    * 主题文件相对构建目录输出路径为 <code>static/themes/dark.css</code>，则资源部署路径被设置为<code>../../</code><br>
-   * 如果默认的设置不符合需求，可以通过此项配置设置一个固定的值，或者使用一个函数根据参数返回资源的相对部署路径。
+   * 如果默认的设置不符合需求，可以通过此项配置设置一个固定的值，或者使用一个函数根据参数返回资源的相对部署路径。<br>
+   * 可以使用异步函数返回 <code>Promise</code>。
    */
   resourcePublicPath?:
     | string
     | ((externalFile: string, resourcePath: string, projectContext: string) => string)
+    | ((externalFile: string, resourcePath: string, projectContext: string) => Promise<string>)
   /**
    * 需要计算相对部署路径的资源文件的筛选规则。默认根据资源扩展名称筛选图片、字体等文件。
    */
@@ -197,20 +199,28 @@ const schema: Schema = {
   },
 }
 
+type ExcludeNullableValueExcept<T, P extends keyof T> = {
+  [K in keyof T]-?: K extends P ? T[K] | null : T[K]
+}
+export type ValidPluginOptions = ExcludeNullableValueExcept<
+  PluginOptions,
+  'themeFilter' | 'publicPath' | 'resourcePublicPath' | 'resourceFilter'
+>
+
 //
 export function getOptions(opts?: PluginOptions) {
   const options = Object.assign(
     {
-      themes: [],
       // themeFilter: null,
+      // publicPath: '',
+      // resourcePublicPath,
+      // resourceFilter,
+      themes: [],
       themeExportPath: defaultExportPath,
       defaultTheme: 'default',
       onlyColor: true,
       filename: '[name].[contenthash:8].chunk.css',
       outputPath: 'themes',
-      // publicPath: '',
-      // resourcePublicPath,
-      // resourceFilter,
       esModule: true,
       cssModules: 'auto',
     },
@@ -222,17 +232,10 @@ export function getOptions(opts?: PluginOptions) {
   })
   const { themeExportPath, themes, filename, defaultTheme } = options
 
-  if (themeExportPath === defaultExportPath) {
-    try {
-      options.themeExportPath = resolveModulePath(themeExportPath, [fs.realpathSync(process.cwd())])
-    } catch (e) {
-      throw new Error(
-        'There are no installed theme lib, please install "@ices/theme" first or set the option of "themeExportPath" to a customize theme module export path'
-      )
-    }
-  } else {
-    options.themeExportPath = path.resolve(themeExportPath)
-  }
+  options.themeExportPath =
+    themeExportPath === defaultExportPath
+      ? resolveDefaultExportPath()
+      : path.resolve(themeExportPath)
 
   Object.assign(options, {
     themes: Array.isArray(themes) ? themes : [themes],
@@ -248,5 +251,16 @@ export function getOptions(opts?: PluginOptions) {
     },
   })
 
-  return options
+  return options as ValidPluginOptions
+}
+
+// 获取默认的导出路径
+export function resolveDefaultExportPath() {
+  try {
+    return resolveModulePath(defaultExportPath, [fs.realpathSync(process.cwd())])
+  } catch (e) {
+    throw new Error(
+      'There are no installed theme lib, please install "@ices/theme" first or set the option of "themeExportPath" to a customize theme module export path'
+    )
+  }
 }
