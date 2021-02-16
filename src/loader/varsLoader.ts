@@ -6,7 +6,14 @@ import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
 import { PluginLoader } from '../Plugin'
 import { selfModuleName } from '../lib/selfContext'
-import { getQueryObject, getValidSyntax, isSamePath, isStylesheet, readFile } from '../lib/utils'
+import {
+  getQueryObject,
+  getValidSyntax,
+  isSamePath,
+  isStylesheet,
+  normalizeSourceMap,
+  readFile,
+} from '../lib/utils'
 import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
 import { getVarsMessages } from '../lib/postcss/helper'
 import {
@@ -43,19 +50,6 @@ interface LoaderContext extends WebpackLoaderContext {
   readonly data: LoaderData
 }
 
-async function setVarsData(loaderContext: LoaderContext, messages: Message[]) {
-  const { data } = loaderContext
-  const { isThemeRequest } = data
-
-  if (!isThemeRequest) {
-    data.variablesMessages = await getVariablesMessages(loaderContext, messages)
-    data.contextMessages = getContextMessages(messages)
-  } else {
-    data.themeMessages = getThemeVarsMessages(messages)
-  }
-  data.urlMessages = getURLVarsMessages(messages)
-}
-
 // 判断是不是主题文件
 function isThemeFile(file: string, themeFiles: string[]) {
   return themeFiles.some((theme) => isSamePath(file, theme))
@@ -66,65 +60,32 @@ function isThemeDependency({ type, plugin, file }: Message, themeFiles: string[]
   return type === 'dependency' && plugin === 'postcss-import' && isThemeFile(file, themeFiles)
 }
 
-// 获取主题依赖
+// 从消息中筛选依赖的主题文件
 function getThemeDependencies(messages: Message[], themeFiles: string[]) {
   return messages.filter((msg) => isThemeDependency(msg, themeFiles)).map(({ file }) => file)
 }
 
-// 获取来自于主题文件的变量
-async function extractThemeVars(loaderContext: LoaderContext, themeDependencies: string[]) {
-  const { options, syntaxPlugin, fileSystem } = loaderContext.data
-  const { syntax, onlyColor } = options
-  const extractOptions = { syntax, syntaxPlugin, onlyColor }
-  const themeVars = new Map<string, ThemeVarsMessage>()
-
-  for (const file of themeDependencies) {
-    const source = await readFile(file, fileSystem)
-
-    // 处理主题文件
-    const { messages } = await postcss([
-      //
-      ...getCommonPlugins(loaderContext),
-      extractThemeVarsPlugin(extractOptions),
-      //
-    ]).process(source, {
-      syntax: syntaxPlugin,
-      from: file,
-      map: false,
-    })
-
-    // 合并变量
-    for (const msg of getVarsMessages(messages, 'theme-root-vars')) {
-      themeVars.set(msg.ident, msg)
-    }
-    for (const msg of getVarsMessages(messages, 'theme-vars')) {
-      themeVars.set(msg.ident, msg)
-    }
-  }
-
-  return [...themeVars.values()]
-}
-
-// 获取可用的全局变量
-async function getVariablesMessages(loaderContext: LoaderContext, messages: Message[]) {
-  const { themeFiles } = loaderContext.data
-  return extractThemeVars(loaderContext, getThemeDependencies(messages, themeFiles))
-}
-
-// 获取当前样式文件的本地变量
+// 从消息中筛选当前样式文件的本地变量
 function getContextMessages(messages: Message[]) {
   return getVarsMessages(messages, 'theme-context-vars')
 }
 
-// 获取主题变量
-function getThemeVarsMessages(messages: Message[]) {
-  return getVarsMessages(
-    messages,
-    ({ type }) => type === 'theme-vars' || type === 'theme-root-vars'
-  )
+// 从消息中筛选主题变量
+function getThemeVarsMessages(
+  messages: Message[],
+  themeVars: Map<string, ThemeVarsMessage> = new Map<string, ThemeVarsMessage>()
+) {
+  // 合并变量
+  for (const msg of getVarsMessages(messages, 'theme-root-vars')) {
+    themeVars.set(msg.ident, msg)
+  }
+  for (const msg of getVarsMessages(messages, 'theme-vars')) {
+    themeVars.set(msg.ident, msg)
+  }
+  return [...themeVars.values()]
 }
 
-// 获取URL变量
+// 从消息中筛选URL变量
 function getURLVarsMessages(messages: Message[]) {
   const varsMap = new Map<string, ThemeVarsMessage>()
   for (const vars of getVarsMessages(messages, ({ type }) => type === 'theme-url-vars')) {
@@ -139,11 +100,75 @@ function getSyntaxPlugin(syntax: string) {
   return require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`) as Syntax
 }
 
+// 设置变量数据，这些数据在theme-loader的normal阶段使用
+// 这里的入参消息列表messages，里面是当前文件中所有的解析消息
+// 其中，包含导入文件依赖，主题文件中的所有变量（包含主题变量以及非主题变量），自身的本地变量，以及非主题文件的所有导入变量
+async function setVarsData(loaderContext: LoaderContext, messages: Message[]) {
+  const { data } = loaderContext
+  const { isThemeRequest } = data
+
+  if (!isThemeRequest) {
+    // 用于在当前样式文件中，替换引用自主题文件的变量声明
+
+    // 获取当前文件所处解析上下文中，所有由被导入的主题文件所导出的主题变量（排除掉了不能用作主题变量的变量）
+    // 需要在所有文件导入完成后进行，不然解析变量可能存在解析不到的情况（依赖了导入文件中的变量，而那个文件还没有处理的时候）
+    data.variablesMessages = await getVariablesMessages(loaderContext, messages)
+    // 获取当前文件自身声明的本地变量
+    data.contextMessages = getContextMessages(messages)
+  } else {
+    // 用于生成单独的主题文件变量
+
+    // 获取主题文件所处解析上下文中，由主题文件导出的主题变量（排除掉了不能用作主题变量的变量）
+    data.themeMessages = getThemeVarsMessages(messages)
+  }
+  // 用于对导入文件中的外部资源引用进行相对路径修正
+  // 这里的url消息包含了所有的url资源引用变量声明，处理值替换时，值处理器只会处理需要处理的变量声明，所以这里不需要做过滤
+  data.urlMessages = getURLVarsMessages(messages)
+}
+
+// 获取来自于主题文件导出的主题变量（排除掉了不能用作主题变量的变量）
+// 需要在所有导入完成后执行，不然会丢变量
+async function extractThemeVars(loaderContext: LoaderContext, themeDependencies: string[]) {
+  const { options, syntaxPlugin, fileSystem } = loaderContext.data
+  const { syntax, onlyColor } = options
+  const extractOptions = { syntax, syntaxPlugin, onlyColor }
+  const themeVars = new Map<string, ThemeVarsMessage>()
+
+  for (const file of themeDependencies) {
+    // 一般只有一个主题依赖文件，即只需要导入一个默认主题文件获取变量声明即可
+    // 如果导入了多个主题文件，则由这些主题文件导出的变量，在当前解析上下文中都可用
+    const source = await readFile(file, fileSystem)
+    // 处理主题文件
+    const { messages } = await postcss([
+      //
+      ...getCommonPlugins(loaderContext),
+      extractThemeVarsPlugin(extractOptions),
+      //
+    ]).process(source, {
+      syntax: syntaxPlugin,
+      from: file,
+      map: false,
+    })
+
+    // 合并数据
+    getThemeVarsMessages(messages, themeVars)
+  }
+
+  return [...themeVars.values()]
+}
+
+// 获取可用的主题变量（排除掉了不能用作主题变量的变量）
+async function getVariablesMessages(loaderContext: LoaderContext, messages: Message[]) {
+  const { themeFiles } = loaderContext.data
+  return extractThemeVars(loaderContext, getThemeDependencies(messages, themeFiles))
+}
+
 // 获取通用插件模块
 function getCommonPlugins(loaderContext: LoaderContext, importOptions: AtImportOptions = {}) {
   const { rootContext, resolve, data } = loaderContext
   const { options, fileSystem, syntaxPlugin } = data
   const { syntax, cssModules, onlyColor } = options
+  const { plugins: importPlugins = [], ...restImportOptions } = importOptions
   //
   const plugins = [
     atImport({
@@ -152,12 +177,12 @@ function getCommonPlugins(loaderContext: LoaderContext, importOptions: AtImportO
       // 抽取URL变量，导入的URL变量，如果是相对路径，不作处理，会有问题
       // 本应该由相应语言loader自己处理路径转换的，但不知为啥没有处理
       // 关于这个问题，resolve-url-loader 有专门的说明，并且提供一种通过sourceMap来解决的方案
-      plugins: [extractURLVars({ syntax, syntaxPlugin, onlyColor })],
+      plugins: [extractURLVars({ syntax, syntaxPlugin, onlyColor }), ...importPlugins],
       // 使用webpack的缓存文件系统读取文件
       load: (filename: string) => readFile(filename, fileSystem),
       // 这里resolve要使用webpack的resolve模块，webpack可能配置了resolve别名等
       resolve: (id: string, basedir: string) => resolveStyle(resolve, id, syntax, basedir),
-      ...importOptions,
+      ...restImportOptions,
     } as AtImportOptions),
   ] as AcceptedPlugin[]
   //
@@ -175,28 +200,31 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
   // 提取变量
-  const messages = await postcss([
+  const { variablesMessages, urlMessages } = await postcss([
     ...getCommonPlugins(loaderContext),
-    // 抽取顶级作用域变量
-    extractTopScopeVarsPlugin({ ...extractOptions, parseValue: false }),
+    extractTopScopeVarsPlugin({ ...extractOptions }),
   ])
     .process(source, {
       syntax: syntaxPlugin,
       from: filename,
       map: false,
     })
-    .then(({ messages }) => getThemeVarsMessages(messages))
+    .then(({ messages }) => ({
+      // 被导入的变量消息（包含能用做主题变量的声明以及常规变量声明）
+      variablesMessages: getThemeVarsMessages(messages),
+      // 被导入的内容中包含的外部资源引用，如果是相对地址，需要进行路径重写，要用到这些值
+      urlMessages: getURLVarsMessages(messages),
+    }))
 
-  // 生成一个新的文件
+  //
   return (
-    await postcss([exportVarsPlugin({ ...extractOptions, messages })]).process(
-      `/* Theme Variables extracted by ${selfModuleName} */\n\n`,
-      {
-        syntax: syntaxPlugin,
-        from: undefined,
-        map: false,
-      }
-    )
+    await postcss([
+      exportVarsPlugin({ ...extractOptions, urlMessages, variablesMessages }),
+    ]).process(`/* Theme Variables extracted by ${selfModuleName} */\n\n`, {
+      syntax: syntaxPlugin,
+      from: filename,
+      map: false,
+    })
   ).css
 }
 
@@ -208,8 +236,8 @@ function getLoaderOptions(loaderContext: WebpackLoaderContext) {
 }
 
 // 获取插件列表
-function getPostcssPlugins(loaderContext: LoaderContext) {
-  const { isThemeRequest, themeFiles, fileSystem, syntaxPlugin, options } = loaderContext.data
+function getPitchPostcssPlugins(loaderContext: LoaderContext) {
+  const { isThemeRequest, syntaxPlugin, options } = loaderContext.data
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
   const plugins = []
@@ -221,21 +249,9 @@ function getPostcssPlugins(loaderContext: LoaderContext) {
     )
   }
 
-  let importOptions: AtImportOptions | undefined
-  if (!isThemeRequest) {
-    importOptions = {
-      load: async (filename) =>
-        isThemeFile(filename, themeFiles)
-          ? // 如果是对主题文件的导入，则对其进行变量抽取
-            extractTopScopeVars(loaderContext, await readFile(filename, fileSystem), filename)
-          : // 非主题文件，使用webpack缓存文件系统读取文件
-            readFile(filename, fileSystem),
-    }
-  }
-
   plugins.push(
     // 获取通用处理插件， 主要是 atImport 插件
-    ...getCommonPlugins(loaderContext, importOptions)
+    ...getCommonPlugins(loaderContext)
   )
 
   plugins.push(
@@ -307,7 +323,7 @@ export const pitch: PluginLoader['pitch'] = function () {
     }
 
     // 获取插件
-    const plugins = getPostcssPlugins(loaderContext)
+    const plugins = getPitchPostcssPlugins(loaderContext)
 
     // 预处理
     const { messages } = await postcss(plugins).process(source, {
@@ -329,7 +345,7 @@ export const pitch: PluginLoader['pitch'] = function () {
 // normal 阶段
 const varsLoader: PluginLoader = function (source, map) {
   const loaderContext = this as LoaderContext
-  const { data, resourcePath } = loaderContext
+  const { data, resourcePath, sourceMap } = loaderContext
   const { isStylesheet, options, syntaxPlugin } = data
   const { syntax, onlyColor } = options
 
@@ -339,6 +355,12 @@ const varsLoader: PluginLoader = function (source, map) {
   }
 
   const { urlMessages, themeMessages, variablesMessages, contextMessages } = data
+  const useSourceMap =
+    sourceMap && syntax !== 'less'
+      ? // less 解析器在进行序列化时，报sourceMap错误
+        { prev: normalizeSourceMap(map, resourcePath) || null, inline: false, annotation: false }
+      : false
+
   const callback = this.async() || (() => {})
 
   postcss([
@@ -356,10 +378,16 @@ const varsLoader: PluginLoader = function (source, map) {
     .process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
-      map: false,
+      to: resourcePath,
+      map: useSourceMap,
     })
-    .then(({ css }) => callback(null, css))
-    .catch(callback)
+    .then(({ css, map }) => callback(null, css, map ? map.toJSON() : undefined))
+    .catch((err) => {
+      if (err.file) {
+        this.addDependency(err.file)
+      }
+      callback(err)
+    })
 }
 
 varsLoader.filepath = __filename

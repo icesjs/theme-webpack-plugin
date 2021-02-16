@@ -96,6 +96,51 @@ export function normalizeRelativePath(path: string) {
   return path.replace(/\\/g, '/')
 }
 
+// 格式化sourceMap
+export function normalizeSourceMap(map: any, resourcePath: string) {
+  if (!map) {
+    return
+  }
+  let newMap = map
+  if (typeof newMap === 'string') {
+    newMap = JSON.parse(newMap)
+  }
+  delete newMap.file
+  const { sourceRoot } = newMap
+  delete newMap.sourceRoot
+  if (newMap.sources) {
+    newMap.sources = newMap.sources.map((source: string) => {
+      if (source.indexOf('<') === 0) {
+        return source
+      }
+      const sourceType = getSourceURLType(source)
+      if (sourceType === 'path-relative' || sourceType === 'path-absolute') {
+        const absoluteSource =
+          sourceType === 'path-relative' && sourceRoot
+            ? path.resolve(sourceRoot, source).replace(/\\/g, '/')
+            : source.replace(/\\/g, '/')
+        return path.relative(path.dirname(resourcePath), absoluteSource)
+      }
+      return source
+    })
+  }
+  return newMap
+}
+
+// 检测sourceMap里路径类型
+function getSourceURLType(source: string) {
+  if (source[0] === '/') {
+    if (source[1] === '/') {
+      return 'scheme-relative'
+    }
+    return 'path-absolute'
+  }
+  if (/^[a-z]:[/\\]|^\\\\/i.test(source)) {
+    return 'path-absolute'
+  }
+  return /^[a-z0-9+\-.]+:/i.test(source) ? 'absolute' : 'path-relative'
+}
+
 // 判断是不是相对地址
 export function isRelativePath(path: string) {
   if (typeof (path as any) !== 'string' || !path) {

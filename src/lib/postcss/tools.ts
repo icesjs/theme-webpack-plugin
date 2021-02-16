@@ -1,6 +1,9 @@
 import { getHashDigest } from 'loader-utils'
 import { AtRule, Declaration, Plugin, Root, Rule, Syntax } from 'postcss'
-import valueParser from 'postcss-value-parser'
+import valueParser, {
+  FunctionNode as FunctionValueNode,
+  Node as ValueNode,
+} from 'postcss-value-parser'
 import { isColorValue } from '../colors'
 
 export const pluginName = 'postcss-extract-theme-vars'
@@ -13,7 +16,8 @@ export interface ThemeVarsMessage {
   value: string // 变量解析后的值
   originalValue: string // 属性原始值
   isRootDecl: boolean // 是否是:root{}下的属性声明
-  dependencies?: Set<string> // 消息里依赖列表里的值是ident值
+  parsed: boolean // 是否已处理值解析
+  dependencies?: VarsDependencies // 依赖的变量
   from?: string // 来源文件路径
   data?: any // 额外的数据
 }
@@ -22,7 +26,7 @@ export type ThemePropertyMatcher = readonly [RegExp, RegExp, RegExp]
 
 export interface VarsDictItem extends Omit<ThemeVarsMessage, 'type' | 'plugin'> {
   isTheme: boolean
-  dependencies: Set<string>
+  dependencies: VarsDependencies
 }
 
 export interface URLVarsDictItem extends VarsDictItem {
@@ -30,6 +34,7 @@ export interface URLVarsDictItem extends VarsDictItem {
   from: string
 }
 
+// ident => VarsDictItem
 export type VarsDict = Map<string, VarsDictItem>
 
 export type URLVarsDict = Map<string, URLVarsDictItem>
@@ -47,24 +52,29 @@ export interface PluginOptions extends ThemeLoaderData {
   onlyColor: boolean
 }
 
+export type ExtendPluginOptions<T> = ExtendType<PluginOptions, T>
+
 export type RefVars = VarsDictItem
 
 export type ExtendType<S, T> = S & T
 
-export type ExtendPluginOptions<T> = ExtendType<PluginOptions, T>
+// ident =>  propName
+export type VarsDependencies = Map<string, string>
 
-type VariablesContext = Map<
-  string, // 这里的键是属性名（非ID）
-  {
-    ident: string
-    value: string
-    originalName: string
-    originalValue: string
-    isRootDecl: boolean
-    dependencies: Set<string>
-    decl: Declaration
-  }
->
+type VariablesDecl = {
+  ident: string
+  value: string
+  originalName: string
+  originalValue: string
+  isRootDecl: boolean
+  dependencies: VarsDependencies
+  decl: Declaration
+  from: string | undefined
+  parsed: boolean
+}
+
+// 这里的键是属性名（非ID）
+type VariablesContext = Map<string, VariablesDecl>
 
 type VariablesContainer = {
   themeVars: VarsDict | null
@@ -189,6 +199,7 @@ export function getTopScopeVariables(
           type: 'decl',
           prop: `@${node.name}`,
           value,
+          source: node.source,
         }
       } else {
         // $var: value
@@ -196,13 +207,13 @@ export function getTopScopeVariables(
       }
       const varNode = decl as Declaration
       if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
-        addTopScopeVariable(variables, varNode, false)
+        addTopScopeVariable(variables, varNode, root, false)
       }
     } else if (node.type === 'rule' && node.selector === ':root') {
       // :root {--prop: value}
       for (const rNode of node.nodes) {
         if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
-          addTopScopeVariable(variables, rNode, true)
+          addTopScopeVariable(variables, rNode, root, true)
         }
       }
     }
@@ -244,7 +255,7 @@ export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean
     return null
   }
   const vars: VarsDict = new Map<string, VarsDictItem>()
-  for (const { ident, type, plugin, dependencies = new Set<string>(), ...rest } of messages) {
+  for (const { ident, type, plugin, dependencies = new Map(), ...rest } of messages) {
     vars.set(ident, {
       ...rest,
       ident,
@@ -255,14 +266,18 @@ export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean
   return vars
 }
 
+// 判断是否是一个URL函数调用节点
+export function isURLFunctionNode(node: ValueNode): node is FunctionValueNode {
+  return (
+    node.type === 'function' && (node.value === 'url' || /(?:-webkit-)?image-set/.test(node.value))
+  )
+}
+
 // 解析属性声明值里的URL路径
 export function parseUrlPaths(value: string) {
   const paths = new Set<string>()
   valueParser(value).walk((node) => {
-    if (
-      node.type !== 'function' ||
-      !(node.value === 'url' || /(?:-webkit-)?image-set/.test(node.value))
-    ) {
+    if (!isURLFunctionNode(node)) {
       return
     }
     if (node.value === 'url') {
@@ -288,10 +303,14 @@ export function parseUrlPaths(value: string) {
 function getReferenceVars(contextDict: VarsDict | null, variablesDict: VarsDict | null) {
   const refs = new Map<string, RefVars>()
   if (contextDict && variablesDict) {
-    for (const [ident, { dependencies, ...rest }] of contextDict) {
+    for (const { ident, dependencies, ...rest } of contextDict.values()) {
       // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
-      if (dependencies.size && ![...dependencies].some((deps) => !variablesDict.has(deps))) {
-        refs.set(ident, { dependencies, ...rest })
+      if (
+        dependencies &&
+        dependencies.size &&
+        ![...dependencies.keys()].some((ident) => !variablesDict.has(ident))
+      ) {
+        refs.set(ident, { ident, dependencies, ...rest })
       }
     }
   }
@@ -302,23 +321,26 @@ function getReferenceVars(contextDict: VarsDict | null, variablesDict: VarsDict 
 function addTopScopeVariable(
   variables: VariablesContext,
   varDecl: Declaration,
+  root: Root,
   isRootDecl: boolean
 ) {
   variables.set(varDecl.prop, {
     ident: makeVariableIdent(varDecl.prop),
-    dependencies: new Set<string>(),
+    dependencies: new Map<string, string>(),
     originalName: varDecl.prop,
     value: varDecl.value,
     originalValue: varDecl.value,
     isRootDecl,
     decl: varDecl,
-  })
+    from: varDecl.source?.input.file || root.source?.input.file,
+    parsed: false,
+  } as VariablesDecl)
 }
 
 // 获取变量值
 function getVarsValue(
   varName: string,
-  varsDependency: Set<string>,
+  varsDependency: VarsDependencies,
   variables: VariablesContext,
   regExps: ThemePropertyMatcher
 ) {
@@ -344,7 +366,7 @@ function getVarsValue(
 // 解析属性值
 function parseValue(
   value: string,
-  varsDependencies: Set<string>,
+  varsDependencies: VarsDependencies,
   variables: VariablesContext,
   regExps: ThemePropertyMatcher
 ) {
@@ -359,7 +381,7 @@ function parseValue(
       // 当前节点是一个变量名引用
       containVars = true
       const varName = node.value
-      varsDependencies.add(makeVariableIdent(varName))
+      varsDependencies.set(makeVariableIdent(varName), varName)
       node.value = getVarsValue(varName, varsDependencies, variables, regExps)
     }
   })
@@ -370,8 +392,8 @@ function parseValue(
 // 格式化全局变量，解除变量引用关系
 function normalizeVarValue(variables: VariablesContext, regExps: ThemePropertyMatcher) {
   for (const [prop, vars] of variables) {
-    let { ident, value, dependencies } = vars
-    dependencies.add(ident)
+    let { ident, value, originalName, dependencies } = vars
+    dependencies.set(ident, originalName)
     value = value ? value.replace(/!(?!important).*/, '') : ''
     value = parseValue(value, dependencies, variables, regExps)
     if (!value) {
@@ -379,6 +401,7 @@ function normalizeVarValue(variables: VariablesContext, regExps: ThemePropertyMa
     } else {
       dependencies.delete(ident)
       vars.value = value
+      vars.parsed = true
     }
   }
   return variables

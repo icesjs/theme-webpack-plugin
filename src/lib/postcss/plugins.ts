@@ -7,13 +7,13 @@ import {
   parseUrlPaths,
   pluginFactory,
   PluginOptions,
-  ThemeVarsMessage,
   toVarsDict,
 } from './tools'
 import {
   addTitleComment,
   createVarsRootRuleNode,
   getDeclProcessor,
+  getProcessedPropertyValue,
   getVarsMessages,
   setVarsMessage,
 } from './helper'
@@ -22,12 +22,12 @@ import {
 // 此插件在pitch阶段执行。
 // 需要atImport插件先执行。
 // 消息 theme-vars 、 theme-root-vars。
-export function extractThemeVarsPlugin(options: PluginOptions) {
+export function extractThemeVarsPlugin(options: ExtendPluginOptions<{}>) {
   return pluginFactory(options, ({ regExps, onlyColor }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
       // 处理顶层变量
-      for (const { value, isRootDecl, ...rest } of variables.values()) {
+      for (const { decl, value, isRootDecl, ...rest } of variables.values()) {
         if (determineCanUseAsThemeVarsByValue(value, onlyColor)) {
           setVarsMessage({
             ...rest,
@@ -52,7 +52,7 @@ export function extractContextVarsPlugin(options: PluginOptions) {
       // 这里不对值进行引用解析，是因为此时并不知道上下文中所有可用的变量
       // 如果现在就进行解析，则如果本地变量引用了从其他文件导入的变量，则会引用失败
       const context = getTopScopeVariables(root, regExps, null, false)
-      for (const { originalValue, ...rest } of context.values()) {
+      for (const { decl, originalValue, ...rest } of context.values()) {
         setVarsMessage({
           ...rest,
           originalValue,
@@ -70,6 +70,7 @@ export function extractContextVarsPlugin(options: PluginOptions) {
 // 抽取全局变量的插件（当前文件和导入文件中声明的变量）。
 // 此插件在pitch阶段执行。
 // 需要atImport插件先执行。
+// 负责补充context-vars的值。
 export function extractVariablesPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
@@ -98,17 +99,18 @@ export function extractVariablesPlugin(options: PluginOptions) {
   }))
 }
 
-// 抽取顶层变量声明。
+// 筛选所有顶层变量声明。相当于去掉了非变量的声明。
 // 不修改原样式文件。
 // 需要在 atImport 插件后面执行。
 // 消息：theme-vars、theme-root-vars
-export function extractTopScopeVarsPlugin(options: ExtendPluginOptions<{ parseValue: boolean }>) {
-  return pluginFactory(options, ({ regExps, parseValue }) => ({
+export function extractTopScopeVarsPlugin(options: PluginOptions) {
+  return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
-      for (const vars of getTopScopeVariables(root, regExps, null, parseValue).values()) {
-        const { isRootDecl } = vars
+      for (const vars of getTopScopeVariables(root, regExps).values()) {
+        const { decl, isRootDecl, ...rest } = vars
         setVarsMessage({
-          ...vars,
+          ...rest,
+          isRootDecl,
           helper,
           type: isRootDecl ? 'theme-root-vars' : 'theme-vars',
         })
@@ -129,7 +131,7 @@ export function extractVarsPlugin(options: PluginOptions) {
       if (themeVars) {
         node = createVarsRootRuleNode({
           properties: themeVars,
-          urlVars,
+          vars: { variables: themeVars, context: themeVars, urlVars },
           syntax,
           regExps,
           helper,
@@ -145,19 +147,17 @@ export function extractVarsPlugin(options: PluginOptions) {
             helper
           )
         )
-
         // 这里仅生成变量声明注释，方便调试
         // 实际的变量由Theme模块生成并动态插入到页面中
         node = createVarsRootRuleNode({
           properties: toVarsDict(getVarsMessages(helper.result.messages, 'theme-vars'), false)!,
           asComment: true, // 以注释形式插入
-          urlVars,
+          vars: { variables, context, urlVars },
           syntax,
           regExps,
           helper,
         })
       }
-
       if (node) {
         // 添加注释
         addTitleComment(node, helper)
@@ -166,34 +166,43 @@ export function extractVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 用于抽取变量并创建新的样式文件
+// 用于抽取变量并创建临时的样式文件（内存文件，直接被作为字符串解析使用）
 // 将变量声明为样式规则
-export function exportVarsPlugin(options: ExtendPluginOptions<{ messages: ThemeVarsMessage[] }>) {
-  return pluginFactory(options, ({ messages }) => ({
+export function exportVarsPlugin(options: PluginOptions) {
+  return pluginFactory(options, ({ regExps, vars }) => ({
     Once: async (root, helper) => {
-      if (!Array.isArray(messages)) {
+      const { urlVars, variables } = vars
+      if (!variables) {
         return
       }
       let rootRule: Rule | undefined
-      for (const { type, originalName, originalValue } of messages) {
+      for (const item of variables.values()) {
+        const { isRootDecl, originalName } = item
+        const declValue = getProcessedPropertyValue(
+          item,
+          { variables, context: variables, urlVars },
+          regExps,
+          helper
+        )
+
         const decl = helper.decl({
           prop: originalName,
-          value: originalValue,
+          value: declValue,
         })
-        if (type === 'theme-vars') {
+
+        if (!isRootDecl) {
           root.append(decl)
           continue
         }
-        if (type === 'theme-root-vars') {
-          if (!rootRule) {
-            rootRule = helper.rule({
-              selector: ':root',
-              nodes: [],
-            })
-            root.append(rootRule)
-          }
-          rootRule.append(decl)
+
+        if (!rootRule) {
+          rootRule = helper.rule({
+            selector: ':root',
+            nodes: [],
+          })
+          root.append(rootRule)
         }
+        rootRule.append(decl)
       }
     },
   }))
@@ -208,7 +217,7 @@ export function extractURLVars(options: PluginOptions) {
         return
       }
       const vars = getTopScopeVariables(root, regExps)
-      for (const { value, decl, ...rest } of vars.values()) {
+      for (const { decl, value, from, ...rest } of vars.values()) {
         if (!hasResourceURL(value)) {
           continue
         }
@@ -219,7 +228,7 @@ export function extractURLVars(options: PluginOptions) {
             value,
             helper,
             type: 'theme-url-vars',
-            from: sourceFile,
+            from: from || sourceFile,
             data: paths,
           })
         }
