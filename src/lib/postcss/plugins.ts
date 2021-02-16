@@ -2,10 +2,12 @@ import { Comment, Rule } from 'postcss'
 import { hasResourceURL } from '../colors'
 import {
   determineCanUseAsThemeVarsByValue,
-  ExtractVarsPluginOptions,
+  ExtendPluginOptions,
   getTopScopeVariables,
   parseUrlPaths,
   pluginFactory,
+  PluginOptions,
+  ThemeVarsMessage,
   toVarsDict,
 } from './tools'
 import {
@@ -20,7 +22,7 @@ import {
 // 此插件在pitch阶段执行。
 // 需要atImport插件先执行。
 // 消息 theme-vars 、 theme-root-vars。
-export function extractThemeVarsPlugin(options: ExtractVarsPluginOptions) {
+export function extractThemeVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps, onlyColor }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
@@ -44,7 +46,7 @@ export function extractThemeVarsPlugin(options: ExtractVarsPluginOptions) {
 // 此插件在pitch阶段执行。
 // 需要在atImport插件之前执行。
 // 消息 theme-context。
-export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
+export function extractContextVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     Once: async (root, helper) => {
       // 这里不对值进行引用解析，是因为此时并不知道上下文中所有可用的变量
@@ -58,7 +60,7 @@ export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
           // 得等到导入文件解析完成后，再进行解析
           value: originalValue,
           helper,
-          type: 'theme-context',
+          type: 'theme-context-vars',
         })
       }
     },
@@ -68,12 +70,12 @@ export function extractContextVarsPlugin(options: ExtractVarsPluginOptions) {
 // 抽取全局变量的插件（当前文件和导入文件中声明的变量）。
 // 此插件在pitch阶段执行。
 // 需要atImport插件先执行。
-export function extractVariablesPlugin(options: ExtractVarsPluginOptions) {
+export function extractVariablesPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
       const messages = helper.result.messages
-      for (const msg of getVarsMessages(messages, 'theme-context')) {
+      for (const msg of getVarsMessages(messages, 'theme-context-vars')) {
         const parsedVariable = variables.get(msg.originalName)
         // 重设当前上下文本地变量的值
         if (parsedVariable) {
@@ -100,8 +102,8 @@ export function extractVariablesPlugin(options: ExtractVarsPluginOptions) {
 // 不修改原样式文件。
 // 需要在 atImport 插件后面执行。
 // 消息：theme-vars、theme-root-vars
-export function extractTopScopeVarsPlugin(options: ExtractVarsPluginOptions) {
-  return pluginFactory(options, ({ regExps, parseValue = true }) => ({
+export function extractTopScopeVarsPlugin(options: ExtendPluginOptions<{ parseValue: boolean }>) {
+  return pluginFactory(options, ({ regExps, parseValue }) => ({
     OnceExit: async (root, helper) => {
       for (const vars of getTopScopeVariables(root, regExps, null, parseValue).values()) {
         const { isRootDecl } = vars
@@ -119,7 +121,7 @@ export function extractTopScopeVarsPlugin(options: ExtractVarsPluginOptions) {
 // 此插件在 normal 阶段执行。
 // 不需要其他插件辅助。
 // 修改原样式文件。
-export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
+export function extractVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps, onlyColor, vars, syntax }) => ({
     OnceExit: async (root, helper) => {
       const { themeVars, variables, context, references, urlVars } = vars
@@ -166,7 +168,7 @@ export function extractVarsPlugin(options: ExtractVarsPluginOptions) {
 
 // 用于抽取变量并创建新的样式文件
 // 将变量声明为样式规则
-export function exportVarsPlugin(options: ExtractVarsPluginOptions) {
+export function exportVarsPlugin(options: ExtendPluginOptions<{ messages: ThemeVarsMessage[] }>) {
   return pluginFactory(options, ({ messages }) => ({
     Once: async (root, helper) => {
       if (!Array.isArray(messages)) {
@@ -198,7 +200,7 @@ export function exportVarsPlugin(options: ExtractVarsPluginOptions) {
 }
 
 // 提取外部资源引用URL变量
-export function extractURLVars(options: ExtractVarsPluginOptions) {
+export function extractURLVars(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
       const sourceFile = root.source?.input.file || helper.result.opts.from

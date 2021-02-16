@@ -7,7 +7,7 @@ export const pluginName = 'postcss-extract-theme-vars'
 
 export interface ThemeVarsMessage {
   plugin: typeof pluginName // 当前插件的名称
-  type: 'theme-vars' | 'theme-root-vars' | 'theme-context' | 'theme-url-vars' // 消息类型
+  type: 'theme-vars' | 'theme-root-vars' | 'theme-context-vars' | 'theme-url-vars' // 消息类型
   ident: string // 属性名hash标识名
   originalName: string // 属性原始名称
   value: string // 变量解析后的值
@@ -41,15 +41,17 @@ export interface ThemeLoaderData {
   urlMessages?: ThemeVarsMessage[]
 }
 
-export interface ExtractVarsPluginOptions extends ThemeLoaderData {
+export interface PluginOptions extends ThemeLoaderData {
   syntax: string
   syntaxPlugin: Syntax
   onlyColor: boolean
-  parseValue?: boolean
-  messages?: ThemeVarsMessage[]
 }
 
 export type RefVars = VarsDictItem
+
+export type ExtendType<S, T> = S & T
+
+export type ExtendPluginOptions<T> = ExtendType<PluginOptions, T>
 
 type VariablesContext = Map<
   string, // 这里的键是属性名（非ID）
@@ -72,19 +74,15 @@ type VariablesContainer = {
   references: Map<string, RefVars>
 }
 
-interface PluginContext extends ExtractVarsPluginOptions {
-  regExps: ThemePropertyMatcher
-  vars: VariablesContainer
-}
+type PluginContext<T> = ExtendType<T, { regExps: ThemePropertyMatcher; vars: VariablesContainer }>
 
 // 辅助创建插件
-export function pluginFactory(
-  options: ExtractVarsPluginOptions,
-  createPlugin: (context: PluginContext) => Omit<Plugin, 'postcssPlugin'>
+export function pluginFactory<T extends PluginOptions>(
+  options: T,
+  createPlugin: (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
 ) {
   const {
     syntax,
-    onlyColor,
     urlMessages,
     themeMessages,
     contextMessages,
@@ -99,7 +97,6 @@ export function pluginFactory(
       ...rest,
       syntax,
       regExps: getVarPropertyRegExps(syntax),
-      onlyColor: Boolean(onlyColor),
       vars: {
         context: contextDict,
         variables: variablesDict,
@@ -107,7 +104,7 @@ export function pluginFactory(
         references: getReferenceVars(contextDict, variablesDict),
         urlVars: urlVars as URLVarsDict,
       },
-    }),
+    } as PluginContext<T>),
     postcssPlugin: pluginName,
   } as Plugin
 }

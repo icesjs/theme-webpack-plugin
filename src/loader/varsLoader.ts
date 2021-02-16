@@ -14,9 +14,9 @@ import {
   extractContextVarsPlugin,
   extractThemeVarsPlugin,
   extractTopScopeVarsPlugin,
+  extractURLVars,
   extractVariablesPlugin,
   extractVarsPlugin,
-  extractURLVars,
 } from '../lib/postcss/plugins'
 import { resolveStyle } from '../lib/resolve'
 
@@ -113,7 +113,7 @@ async function getVariablesMessages(loaderContext: LoaderContext, messages: Mess
 
 // 获取当前样式文件的本地变量
 function getContextMessages(messages: Message[]) {
-  return getVarsMessages(messages, 'theme-context')
+  return getVarsMessages(messages, 'theme-context-vars')
 }
 
 // 获取主题变量
