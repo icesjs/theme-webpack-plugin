@@ -10,7 +10,13 @@ export const pluginName = 'postcss-extract-theme-vars'
 
 export interface ThemeVarsMessage {
   plugin: typeof pluginName // 当前插件的名称
-  type: 'theme-vars' | 'theme-root-vars' | 'theme-context-vars' | 'theme-url-vars' // 消息类型
+  type:
+    | 'theme-vars' // 当前解析上下文中的主题变量
+    | 'theme-root-vars' // 当前解析上下文中的:root规则自定义属性变量
+    | 'theme-context-vars' // 当前文件中声明的本地变量
+    | 'theme-url-vars' // 导入文件中的url地址变量
+    | 'theme-prop-vars' // 从属性值中分离出的主题变量引用
+
   ident: string // 属性名hash标识名
   originalName: string // 属性原始名称
   value: string // 变量解析后的值
@@ -25,7 +31,6 @@ export interface ThemeVarsMessage {
 export type ThemePropertyMatcher = readonly [RegExp, RegExp, RegExp]
 
 export interface VarsDictItem extends Omit<ThemeVarsMessage, 'type' | 'plugin'> {
-  isTheme: boolean
   dependencies: VarsDependencies
 }
 
@@ -34,16 +39,17 @@ export interface URLVarsDictItem extends VarsDictItem {
   from: string
 }
 
+export type RefVarsDictItem = VarsDictItem
+
 // ident => VarsDictItem
 export type VarsDict = Map<string, VarsDictItem>
-
 export type URLVarsDict = Map<string, URLVarsDictItem>
+export type RefVarsDict = Map<string, RefVarsDictItem>
 
 export interface ThemeLoaderData {
-  themeMessages?: ThemeVarsMessage[]
+  urlMessages?: ThemeVarsMessage[]
   contextMessages?: ThemeVarsMessage[]
   variablesMessages?: ThemeVarsMessage[]
-  urlMessages?: ThemeVarsMessage[]
 }
 
 export interface PluginOptions extends ThemeLoaderData {
@@ -53,8 +59,6 @@ export interface PluginOptions extends ThemeLoaderData {
 }
 
 export type ExtendPluginOptions<T> = ExtendType<PluginOptions, T>
-
-export type RefVars = VarsDictItem
 
 export type ExtendType<S, T> = S & T
 
@@ -76,12 +80,11 @@ type VariablesDecl = {
 // 这里的键是属性名（非ID）
 type VariablesContext = Map<string, VariablesDecl>
 
-type VariablesContainer = {
-  themeVars: VarsDict | null
-  context: VarsDict | null
-  variables: VarsDict | null
+export type VariablesContainer = {
+  context: VarsDict
+  variables: VarsDict
   urlVars: URLVarsDict
-  references: Map<string, RefVars>
+  references: RefVarsDict
 }
 
 type PluginContext<T> = ExtendType<T, { regExps: ThemePropertyMatcher; vars: VariablesContainer }>
@@ -91,17 +94,9 @@ export function pluginFactory<T extends PluginOptions>(
   options: T,
   createPlugin: (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
 ) {
-  const {
-    syntax,
-    urlMessages,
-    themeMessages,
-    contextMessages,
-    variablesMessages,
-    ...rest
-  } = options
-  const contextDict = toVarsDict(contextMessages || null, false)
-  const variablesDict = toVarsDict(variablesMessages || null, false)
-  const urlVars = toVarsDict(urlMessages || null, false) || new Map<string, URLVarsDictItem>()
+  const { syntax, urlMessages, contextMessages, variablesMessages, ...rest } = options
+  const contextDict = toVarsDict(contextMessages)
+  const variablesDict = toVarsDict(variablesMessages)
   return {
     ...createPlugin({
       ...rest,
@@ -110,9 +105,8 @@ export function pluginFactory<T extends PluginOptions>(
       vars: {
         context: contextDict,
         variables: variablesDict,
-        themeVars: toVarsDict(themeMessages || null, true),
+        urlVars: toVarsDict<URLVarsDictItem>(urlMessages),
         references: getReferenceVars(contextDict, variablesDict),
-        urlVars: urlVars as URLVarsDict,
       },
     } as PluginContext<T>),
     postcssPlugin: pluginName,
@@ -250,18 +244,19 @@ export function fixScssCustomizePropertyBug(
 }
 
 // 将变量消息转换为变量字典
-export function toVarsDict(messages: ThemeVarsMessage[] | null, isTheme: boolean) {
+export function toVarsDict<T extends VarsDictItem>(
+  messages: ThemeVarsMessage[] | null | undefined
+): Map<string, T> {
+  const vars = new Map<string, T>()
   if (!messages) {
-    return null
+    return vars
   }
-  const vars: VarsDict = new Map<string, VarsDictItem>()
   for (const { ident, type, plugin, dependencies = new Map(), ...rest } of messages) {
     vars.set(ident, {
       ...rest,
       ident,
       dependencies,
-      isTheme,
-    })
+    } as T)
   }
   return vars
 }
@@ -300,18 +295,15 @@ export function parseUrlPaths(value: string) {
 }
 
 // 获取引用类型变量
-function getReferenceVars(contextDict: VarsDict | null, variablesDict: VarsDict | null) {
-  const refs = new Map<string, RefVars>()
-  if (contextDict && variablesDict) {
-    for (const { ident, dependencies, ...rest } of contextDict.values()) {
-      // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
-      if (
-        dependencies &&
-        dependencies.size &&
-        ![...dependencies.keys()].some((ident) => !variablesDict.has(ident))
-      ) {
-        refs.set(ident, { ident, dependencies, ...rest })
-      }
+function getReferenceVars(contextDict: VarsDict, variablesDict: VarsDict) {
+  const refs = new Map<string, RefVarsDictItem>()
+  for (const { ident, dependencies, ...rest } of contextDict.values()) {
+    // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
+    if (
+      dependencies?.size &&
+      ![...dependencies.keys()].some((ident) => !variablesDict.has(ident))
+    ) {
+      refs.set(ident, { ident, dependencies, ...rest })
     }
   }
   return refs

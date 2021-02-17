@@ -7,9 +7,9 @@ import { ValidPluginOptions } from '../options'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
-function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPluginOptions) {
+// 清理不需要的loader
+function clearLoaders(loaderContext: LoaderContext) {
   const { loaders } = loaderContext
-
   for (const loader of [...loaders]) {
     if (typeof loader !== 'object') {
       continue
@@ -21,12 +21,33 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
       isFromModule('extract-css-chunks-webpack-plugin', loaderPath) ||
       isFromModule('extract-text-webpack-plugin', loaderPath) ||
       isFromModule('extract-loader', loaderPath) ||
+      // resolve-url-loader 这个loader根据源码映射来处理路径的转换，对于变量导入的一些路径，处理不正确
+      // 这里移除这个插件，根据变量依赖分析自行处理路径转换
+      isFromModule('resolve-url-loader', loaderPath) ||
       // 我们不需要style-loader将样式转换为js模块
       isFromModule('style-loader', loaderPath) ||
       // 先清除已使用的file-loader，后面我们再添加
       isFromModule('file-loader', loaderPath)
     ) {
       loaders.splice(loaders.indexOf(loader), 1)
+    }
+  }
+}
+
+// 检查并设置相应loader
+function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPluginOptions) {
+  const { loaders } = loaderContext
+
+  clearLoaders(loaderContext)
+
+  for (const [index, loader] of Object.entries(loaders)) {
+    if (isFromModule('css-loader', loader.path)) {
+      const options = loader.options || loader.query
+      if (typeof options === 'object') {
+        // 修正下css-loader的参数
+        options.importLoaders = loaders.length - Number(index) - 1
+        break
+      }
     }
   }
 
@@ -54,6 +75,7 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
   )
 }
 
+// 获取转发请求的资源路径
 function getThemeResource(loaderContext: LoaderContext) {
   const { resourcePath, resourceQuery } = loaderContext
   return stringifyRequest(loaderContext, __filename + '!' + resourcePath + resourceQuery)

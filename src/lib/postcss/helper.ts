@@ -1,6 +1,6 @@
 import * as path from 'path'
-import valueParser, { FunctionNode as FunctionValueNode } from 'postcss-value-parser'
-import { Comment, Declaration, Helpers, Message, Node, Rule } from 'postcss'
+import valueParser, { FunctionNode } from 'postcss-value-parser'
+import { Comment, Declaration, Helpers, Message, Node, Root, Rule } from 'postcss'
 import { isColorProperty } from '../colors'
 import { selfModuleName } from '../selfContext'
 import { isRelativePath, normalizeRelativePath } from '../utils'
@@ -11,23 +11,15 @@ import {
   isURLFunctionNode,
   makeVariableIdent,
   pluginName,
-  RefVars,
   ThemePropertyMatcher,
   ThemeVarsMessage,
-  URLVarsDict,
   URLVarsDictItem,
+  VariablesContainer,
   VarsDependencies,
   VarsDict,
 } from './tools'
 
 type DeclValueProcessor = (value: string, isRootDecl: boolean) => string
-
-type VariablesContainer = NonNullable<{
-  context: VarsDict
-  variables: VarsDict
-  urlVars: URLVarsDict
-  references: Map<string, RefVars>
-}>
 
 type PropertyLike = {
   ident: string
@@ -35,12 +27,6 @@ type PropertyLike = {
   originalValue: string
   dependencies?: VarsDependencies
   urlDependencies?: Map<string, string>
-}
-
-type URLVariablesContainer = {
-  context: VarsDict
-  variables: VarsDict
-  urlVars: URLVarsDict
 }
 
 interface VarsMessageOptions extends Omit<ThemeVarsMessage, 'ident' | 'type' | 'plugin'> {
@@ -51,7 +37,7 @@ interface VarsMessageOptions extends Omit<ThemeVarsMessage, 'ident' | 'type' | '
 
 type CreateRuleOptions = {
   properties: VarsDict
-  vars: URLVariablesContainer
+  vars: VariablesContainer
   syntax: string
   regExps: ThemePropertyMatcher
   helper: Helpers
@@ -61,10 +47,10 @@ type CreateRuleOptions = {
 // 设置变量消息
 export function setVarsMessage(options: VarsMessageOptions) {
   const {
+    helper,
     originalName,
     type = 'theme-vars',
     ident = makeVariableIdent(originalName),
-    helper,
     ...rest
   } = options
   const msg = { ...rest, originalName, type, ident, plugin: pluginName } as ThemeVarsMessage
@@ -102,17 +88,15 @@ export function getVarsMessages(
 
 // 获取变量抽取迭代处理函数。
 // 消息 theme-vars。
-export function getDeclProcessor(
-  onlyColor: boolean,
-  syntax: string,
-  vars: VariablesContainer,
-  regExps: ThemePropertyMatcher,
+export function getDeclProcessor(options: {
+  onlyColor: boolean
+  syntax: string
+  vars: VariablesContainer
+  regExps: ThemePropertyMatcher
   helper: Helpers
-) {
-  // 值处理器
+}) {
+  const { onlyColor, syntax, vars, regExps, helper } = options
   const processor: DeclValueProcessor = getDeclValueProcessor(onlyColor, vars, regExps, helper)
-
-  // 返回属性声明处理函数
   return (decl: Declaration) => {
     if (onlyColor && !regExps[2].test(decl.prop) && !isColorProperty(decl.prop)) {
       return
@@ -126,6 +110,9 @@ export function getDeclProcessor(
 
 // 添加标题注释
 export function addTitleComment(node: Rule | Comment, helper: Helpers) {
+  if (!node) {
+    return
+  }
   const root = helper.result.root
   const file = root.source?.input.file || ''
   const divider = '=========================================================================='
@@ -180,17 +167,21 @@ export function createVarsRootRuleNode(options: CreateRuleOptions) {
   return node
 }
 
+// 获取当前处理的样式文件路径
+export function getSourceFile(helper: Helpers, root: Root = helper.result.root) {
+  return root.source?.input.file || helper.result.opts.from || ''
+}
+
 // 修正属性声明中的外部资源引用地址
 // 影响写入样式文件中的属性值
 export function getProcessedPropertyValue(
   property: PropertyLike,
-  vars: URLVariablesContainer,
+  vars: VariablesContainer,
   regExps: ThemePropertyMatcher,
   helper: Helpers
 ) {
   const { originalValue, ident } = property
-  const { result } = helper
-  const sourceFile = result.root.source?.input.file || result.opts.from
+  const sourceFile = getSourceFile(helper)
   if (!sourceFile) {
     return originalValue
   }
@@ -231,7 +222,7 @@ function getURLValueProcessor(options: {
   variables: VarsDict
   regExps: ThemePropertyMatcher
   helper: Helpers
-  vars: URLVariablesContainer
+  vars: VariablesContainer
 }) {
   const { sourceFile, urlDeps, variables, regExps, helper, vars } = options
   const context = path.dirname(sourceFile)
@@ -268,11 +259,7 @@ function getURLValueProcessor(options: {
 }
 
 // 更新url函数节点中的url值
-function updateURLFunctionValue(
-  node: FunctionValueNode,
-  varsDict: URLVarsDictItem,
-  context: string
-) {
+function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, context: string) {
   const { data, from } = varsDict
   const relativeUrls = new Set([...data].filter((url) => isRelativePath(url)))
   if (!relativeUrls.size) {
@@ -407,8 +394,8 @@ function toComment(node: Node, helper: Helpers) {
   })
 }
 
-// 获取属性声明的值处理函数
-// 修改被处理样式文件的主要方法
+// 属性声明的值处理函数
+// 消息 theme-prop-vars
 function getDeclValueProcessor(
   onlyColor: boolean,
   vars: VariablesContainer,
@@ -449,7 +436,7 @@ function getDeclValueProcessor(
             isRootDecl,
             value,
             helper,
-            type: 'theme-vars',
+            type: 'theme-prop-vars',
             parsed: true,
             dependencies,
           })
