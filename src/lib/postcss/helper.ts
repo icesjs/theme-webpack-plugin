@@ -7,6 +7,7 @@ import {
   determineCanExtractToRootDeclByIdent,
   fixScssCustomizePropertyBug,
   insertRawBefore,
+  isTopRootRule,
   isTopRootDecl,
   isURLFunctionNode,
   makeVariableIdent,
@@ -388,7 +389,7 @@ function mergeTopRootDecls(
 ) {
   // 合并:root节点
   for (const node of helper.result.root.nodes) {
-    if (node.type === 'rule' && node.selector === ':root') {
+    if (isTopRootRule(node)) {
       for (const child of [...node.nodes]) {
         decls.push(child as Declaration)
       }

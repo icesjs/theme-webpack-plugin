@@ -69,22 +69,24 @@ export interface PluginOptions {
    */
   onlyColor?: boolean
   /**
-   * 主题文件的名称模板。<br>
+   * 主题文件的名称模板。<code>extract</code> 配置项为 <code>true</code> 时有效。<br>
    * 默认为 [name].[contenthash:8].css
    */
   filename?: string | ((resourcePath: string, resourceQuery: string) => string)
   /**
-   * 主题文件发布目录。相对于构建输出目录。<br>
+   * 主题文件发布目录。相对于构建输出目录。<code>extract</code> 配置项为 <code>true</code> 时有效。<br>
    * 默认为 themes。
    */
   outputPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
-   * 主题文件的发布部署路径。默认为 __webpack_public_path__ + outputPath<br>
+   * 主题文件的发布部署路径。<code>extract</code> 配置项为 <code>true</code> 时有效。
+   * 默认为 __webpack_public_path__ + outputPath<br>
    * 这个属性的值影响js代码里面保存的主题样式文件的路径值。js代码里动态插入<code>link</code>标签到页面上时，标签的<code>href</code>引用地址就与这个属性有关。
    */
   publicPath?: string | ((url: string, resourcePath: string, projectContext: string) => string)
   /**
-   * 资源文件的相对部署路径。资源文件指在主题文件中引用的url资源，比如图片，字体等。<br>
+   * 资源文件的相对部署路径。资源文件指在主题文件中引用的url资源，比如图片，字体等。
+   * <code>extract</code> 配置项为 <code>true</code> 时有效。<br>
    * 默认为从主题文件本身的输出目录回退到构建输出目录的相对路径。因为资源文件一般是相对于主题文件本身路径引用的，所以是相对路径。比如，
    * 主题文件相对构建目录输出路径为 <code>static/themes/dark.css</code>，则资源部署路径被设置为 <code>../../</code><br>
    * 如果默认的设置不符合需求，可以通过此项配置设置一个固定的值，或者使用一个函数根据参数返回资源的相对部署路径。<br>
@@ -98,10 +100,11 @@ export interface PluginOptions {
         externalFile: string,
         resourcePath: string,
         projectContext: string
-      ) => string | Promise<string>)
+      ) => string | PromiseLike<string>)
 
   /**
    * 需要计算相对部署路径的资源文件的筛选规则。默认根据资源扩展名称筛选图片、字体等文件。
+   * <code>extract</code> 配置项为 <code>true</code> 时有效。
    */
   resourceFilter?: ((externalFile: string, resourcePath: string) => boolean) | RegExp
   /**
@@ -118,6 +121,28 @@ export interface PluginOptions {
    * 如果不带 .module 后缀的样式文件也启用了cssModules，则可开启此项。
    */
   cssModules?: boolean | 'auto' | { [p: string]: any }
+  /**
+   * 是否将除默认主题外的主题抽取成单独的文件发布（也即常说的split code）。默认为 <code>true</code> 。<br>
+   * 如果不抽取，则所有主题样式都默认与主样式文件打包在一起，并以不同属性值作为命名空间进行区分。<br>
+   * 如果主题文件里不仅仅只是变量声明，还包含其他的一些非变量类样式，建议将主题文件单独发布。<br>
+   * 如果主题样式本身体积较大，也建议单独发布。
+   */
+  extract?: boolean
+  /**
+   * 自定义获取css内容的函数。 <code>extract</code> 配置项为 <code>true</code> 时有效。<br>
+   * 一般情况下，css会被loader转换为js模块以便被webpack打包使用，
+   * 如果需要单独以css文件形式发布css模块，则需要先将css内容从js模块里面分离出来，再以css chunk资源文件形式发布。<br>
+   * 常用的分离css内容的插件，有 mini-css-extract-plugin、extract-loader、extract-text-webpack-plugin（已不被建议使用）等。<br>
+   * 因对分离的css资源，需要随主题切换进行精细化的加载卸载处理，mini-css-extract-plugin 无法满足要求，所以本插件自身也提供
+   * 了css资源从代码里分离的能力。<br>
+   * 从js代码里分离出css内容，需要以webpack模块上下文来运行js模块代码，并从js模块的导出对象里面获取原始css字符串。<br>
+   * 默认情况下本插件假设前置处理css模块转换的loader为css-loader，css-loader的导出内容是固定的格式
+   * （一个数组，1号索引为原始css内容，数组自身有toString方法，将css内容及源码映射文件以字符串形式导出来）。<br>
+   * 如果你使用了其他的loader来模块化css，可配置此项，将css内容从模块的导出对象里获取并传递给本插件的loader。
+   * @param exports 样式模块转换为js模块后的导出对象。
+   * @param resourcePath 被处理样式文件的绝对路径。
+   */
+  getCssContent?: (exports: any, resourcePath: string) => string | PromiseLike<string>
 }
 
 //
@@ -197,11 +222,20 @@ const schema: Schema = {
       default: true,
       type: 'boolean',
     },
+    extract: {
+      description: 'Indicates whether split theme files to separated chunk file (default to true).',
+      default: true,
+      type: 'boolean',
+    },
     cssModules: {
       description:
         'If set true, the css modules will be used always. "auto" means ".module" suffix of file will enabled (default to "auto").',
       default: 'auto',
       oneOf: [{ type: 'boolean' }, { type: 'object' }, { enum: ['auto'] }],
+    },
+    getCssContent: {
+      description: 'A function to return the css content from javascript module.',
+      instanceof: 'Function',
     },
   },
 }
@@ -209,7 +243,7 @@ const schema: Schema = {
 type ExcludeNullableValueExcept<T, P extends keyof T> = Required<Omit<T, P>> & { [K in P]?: T[K] }
 export type ValidPluginOptions = ExcludeNullableValueExcept<
   PluginOptions,
-  'themeFilter' | 'publicPath' | 'resourcePublicPath' | 'resourceFilter'
+  'themeFilter' | 'publicPath' | 'resourcePublicPath' | 'resourceFilter' | 'getCssContent'
 >
 
 //
@@ -220,6 +254,7 @@ export function getOptions(opts?: PluginOptions) {
       // publicPath: '',
       // resourcePublicPath,
       // resourceFilter,
+      // getCssContent
       themes: [],
       themeExportPath: defaultExportPath,
       defaultTheme: 'default',
@@ -227,6 +262,7 @@ export function getOptions(opts?: PluginOptions) {
       filename: '[name].[contenthash:8].chunk.css',
       outputPath: 'themes',
       esModule: true,
+      extract: true,
       cssModules: 'auto',
     },
     opts

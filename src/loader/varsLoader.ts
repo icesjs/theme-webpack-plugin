@@ -5,8 +5,12 @@ import postcss from 'postcss'
 import type { AtImportOptions } from 'postcss-import'
 import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
-import { PluginLoader } from '../Plugin'
+import { LoaderContext as WebpackLoaderContext, PluginLoader } from '../Plugin'
+import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
+import { getVarsMessages } from '../lib/postcss/helper'
+import { resolveStyle } from '../lib/resolve'
 import {
+  createASTMeta,
   getQueryObject,
   getValidSyntax,
   isSamePath,
@@ -14,8 +18,6 @@ import {
   readFile,
   tryGetCodeIssuerFile,
 } from '../lib/utils'
-import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
-import { getVarsMessages } from '../lib/postcss/helper'
 import {
   defineContextVarsPlugin,
   defineThemeVariablesPlugin,
@@ -27,9 +29,6 @@ import {
   resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
-import { resolveStyle } from '../lib/resolve'
-
-type WebpackLoaderContext = import('webpack').loader.LoaderContext
 
 export interface VarsLoaderOptions {
   cssModules: boolean | { [p: string]: any }
@@ -403,13 +402,13 @@ export const pitch: PluginLoader['pitch'] = function () {
 }
 
 // normal 阶段
-const varsLoader: PluginLoader = function (source, map) {
+const varsLoader: PluginLoader = function (source, map, meta) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
   const { isStylesheet, syntaxPlugin } = data
 
   if (!isStylesheet) {
-    this.callback(null, source, map)
+    this.callback(null, source, map, meta)
     return
   }
 
@@ -423,7 +422,14 @@ const varsLoader: PluginLoader = function (source, map) {
       // 所以映射文件这里不处理，交给余下loader去处理
       map: false,
     })
-    .then(({ css }) => callback(null, css))
+    .then(({ css, root, messages, processor }) =>
+      callback(
+        null,
+        css,
+        undefined,
+        createASTMeta({ root, messages, version: processor.version }, meta)
+      )
+    )
     .catch(callback)
 }
 

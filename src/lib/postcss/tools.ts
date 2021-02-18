@@ -201,7 +201,7 @@ export function getTopScopeVariables(
       if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
         addTopScopeVariable(variables, varNode, root, false)
       }
-    } else if (node.type === 'rule' && node.selector === ':root') {
+    } else if (isTopRootRule(node)) {
       // :root {--prop: value}
       for (const rNode of node.nodes) {
         if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
@@ -213,10 +213,28 @@ export function getTopScopeVariables(
   return normalize ? normalizeVarValue(variables, regExps) : variables
 }
 
+// 判断是不是顶层的:root规则
+export function isTopRootRule(node: Node): node is Rule {
+  if (node?.parent?.type === 'root' && node.type === 'rule') {
+    const { selectors, selector } = node as Rule
+    const isRoot = (selector: string) => /^(?:html|:root)$/i.test(selector)
+    if (Array.isArray(selectors)) {
+      return selectors.some(isRoot)
+    }
+    return isRoot(selector)
+  }
+  return false
+}
+
+// 选择器是否能够选择中html元素
+export function queryRootElement(selector: string) {
+  return /^(?:html|:root)(?=\[[^\]]*]|[:,.>~+\u0020]|$)/i.test(selector)
+}
+
 // 判断是不是顶层的属性声明
 export function isTopRootDecl(decl: Declaration) {
   const { parent } = decl
-  return parent?.type === 'rule' && (parent as Rule).selector === ':root'
+  return parent?.type === 'rule' && isTopRootRule(parent)
 }
 
 // 修复scss对于:root节点自定义属性，不能正常使用变量引用的bug

@@ -1,6 +1,17 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { parseQuery } from 'loader-utils'
+import type { Message } from 'postcss'
+import { Root } from 'postcss'
+
+const astSymbol = Symbol('ThemeLoaderAstMeta')
+
+type PostcssASTMeta = {
+  type: 'postcss'
+  messages?: Message[]
+  root?: Root
+  version?: string
+}
 
 // 获取一个token，非作为ID，仅用于标记theme文件请求
 export function getToken(length: number = 16) {
@@ -9,8 +20,26 @@ export function getToken(length: number = 16) {
     .substr(0, Math.max(6, length))
 }
 
+// 从元数据中获取postcss的抽象语法树
+export function getASTFromMeta(meta: any) {
+  let astMeta
+  if (hasOwnProperty(meta, astSymbol)) {
+    astMeta = Reflect.get(meta, astSymbol)
+  } else {
+    astMeta = {}
+  }
+  return { ...astMeta, type: 'postcss' } as PostcssASTMeta
+}
+
+// 创建共享元数据
+export function createASTMeta(meta: Omit<PostcssASTMeta, 'type'>, prevMeta: any) {
+  return Object.defineProperties(Object.assign({}, prevMeta), {
+    [astSymbol]: { value: { ...meta } },
+  })
+}
+
 // 解析查询参数为一个对象
-export function getQueryObject(resourceQuery: string) {
+export function getQueryObject(resourceQuery: string): { token?: string; [p: string]: any } {
   if (resourceQuery && resourceQuery.startsWith('?')) {
     return parseQuery(resourceQuery)
   }

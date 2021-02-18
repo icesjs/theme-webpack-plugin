@@ -11,6 +11,7 @@ import {
   parseURLPaths,
   pluginFactory,
   PluginOptions,
+  queryRootElement,
   ThemeLoaderData,
   toVarsDict,
   VarsDictItem,
@@ -230,6 +231,26 @@ export function preserveRawStylePlugin(options: PluginOptions) {
           return res
         },
       })
+    },
+  }))
+}
+
+// 为主题变量添加命名空间
+export function addThemeScopePlugin(options: ExtendPluginOptions<{ scope: string }>) {
+  return pluginFactory(options, ({ scope }) => ({
+    Once: async (root) => {
+      const scopeAttr = `[data-theme=${JSON.stringify(scope)}]`
+      for (const node of root.nodes) {
+        if (node.type === 'rule') {
+          const { selectors = [] } = node
+          node.selectors = selectors.map((selector) => {
+            if (queryRootElement(selector)) {
+              return selector.replace(/^(?:html|:root)/i, (s) => `${s}${scopeAttr}`)
+            }
+            return `:root${scopeAttr} ${selector}`
+          })
+        }
+      }
     },
   }))
 }

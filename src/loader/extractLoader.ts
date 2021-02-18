@@ -1,16 +1,15 @@
 import * as path from 'path'
 import { format } from 'util'
 import { interpolateName } from 'loader-utils'
-import { PluginLoader } from '../Plugin'
+import { ValidPluginOptions } from '../options'
+import { LoaderContext, PluginLoader } from '../Plugin'
 import { hasOwnProperty, normalizePublicPath } from '../lib/utils'
 import exec from '../lib/vm'
-import { ValidPluginOptions } from '../options'
 
-type LoaderContext = import('webpack').loader.LoaderContext
 type PitchFunction = import('webpack').loader.Loader['pitch']
 
 // 获取资源内容
-function getCssContent(exports: any) {
+function defaultGetCssContent(exports: any) {
   let css
   if (hasOwnProperty(exports, 'toString', 'function')) {
     css = exports.toString()
@@ -106,8 +105,11 @@ function getPublicPathCallback(
 }
 
 // 获取主题引用资源的发布路径，该路径对于css中资源引用(url(xxx))的路径很重要
-function getResourcePublicPath(loaderContext: LoaderContext, source: string) {
-  const pluginOptions = extractLoader.getPluginOptions!()
+function getResourcePublicPath(
+  loaderContext: LoaderContext,
+  source: string,
+  pluginOptions: ValidPluginOptions
+) {
   const { resourceFilter, resourcePublicPath } = pluginOptions
   const compilerOptions = extractLoader.getCompilerOptions!()
   const { output } = compilerOptions
@@ -142,11 +144,13 @@ const extractLoader: PluginLoader = function (source: string | Buffer) {
   if (Buffer.isBuffer(source)) {
     source = source.toString('utf8')
   }
+  const pluginOptions = extractLoader.getPluginOptions!()
   const callback = this.async() || (() => {})
+  const { getCssContent = defaultGetCssContent } = pluginOptions
 
   // 执行虚拟机，运行webpack模块，抽取css模块导出的内容
-  exec(this, source, getResourcePublicPath(this, source))
-    .then(getCssContent)
+  exec(this, source, getResourcePublicPath(this, source, pluginOptions))
+    .then((exports) => getCssContent(exports, this.resourcePath))
     //css的源码映射，已经被css-loader内联进源码里面了，不需要处理
     //要拆分出源码映射文件，optimize-css-assets-webpack-plugin就是干这些事的
     .then((content) => callback(null, content))
