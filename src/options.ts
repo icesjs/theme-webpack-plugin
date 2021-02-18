@@ -206,9 +206,7 @@ const schema: Schema = {
   },
 }
 
-type ExcludeNullableValueExcept<T, P extends keyof T> = {
-  [K in keyof T]-?: K extends P ? T[K] | null : T[K]
-}
+type ExcludeNullableValueExcept<T, P extends keyof T> = Required<Omit<T, P>> & { [K in P]?: T[K] }
 export type ValidPluginOptions = ExcludeNullableValueExcept<
   PluginOptions,
   'themeFilter' | 'publicPath' | 'resourcePublicPath' | 'resourceFilter'
@@ -237,7 +235,7 @@ export function getOptions(opts?: PluginOptions) {
     name: selfModuleName,
     baseDataPath: 'options',
   })
-  const { themeExportPath, themes, filename, defaultTheme } = options
+  const { themeExportPath, filename, defaultTheme } = options
 
   options.themeExportPath =
     themeExportPath === defaultExportPath
@@ -245,7 +243,6 @@ export function getOptions(opts?: PluginOptions) {
       : path.resolve(themeExportPath)
 
   Object.assign(options, {
-    themes: Array.isArray(themes) ? themes : [themes],
     defaultTheme: defaultTheme.toLowerCase(),
     filename: (resourcePath: string, resourceQuery: string) => {
       const template =

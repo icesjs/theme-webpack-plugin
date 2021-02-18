@@ -17,13 +17,13 @@ import {
 import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
 import { getVarsMessages } from '../lib/postcss/helper'
 import {
-  exportVarsPlugin,
-  extractContextVarsPlugin,
-  extractThemeVarsPlugin,
-  extractTopScopeVarsPlugin,
-  extractURLVarsPlugin,
-  extractVariablesPlugin,
-  extractVarsPlugin,
+  defineContextVarsPlugin,
+  defineThemeVariablesPlugin,
+  defineTopScopeVarsPlugin,
+  defineURLVarsPlugin,
+  makeThemeVarsDeclPlugin,
+  makeTopScopeVarsDeclPlugin,
+  resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
 import { resolveStyle } from '../lib/resolve'
@@ -130,7 +130,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
     const { messages } = await postcss([
       //
       ...getCommonPlugins(loaderContext, false, false),
-      extractThemeVarsPlugin(extractOptions),
+      defineThemeVariablesPlugin(extractOptions),
       //
     ]).process(source, {
       syntax: syntaxPlugin,
@@ -153,7 +153,7 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
 
   const { variablesMessages, urlMessages } = await postcss([
     ...getCommonPlugins(loaderContext, false, false),
-    extractTopScopeVarsPlugin({ ...extractOptions }),
+    defineTopScopeVarsPlugin({ ...extractOptions }),
   ])
     .process(source, {
       syntax: syntaxPlugin,
@@ -165,7 +165,9 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
       variablesMessages: getThemeVarsMessages(messages),
     }))
 
-  const plugins = [exportVarsPlugin({ ...extractOptions, urlMessages, variablesMessages })]
+  const plugins = [
+    makeTopScopeVarsDeclPlugin({ ...extractOptions, urlMessages, variablesMessages }),
+  ]
 
   // 生成一个临时字符串文件嵌入到当前解析文件中
   return (
@@ -240,7 +242,7 @@ function getCommonPlugins(
 
       plugins: [
         resolveImportPlugin,
-        extractURLVarsPlugin({ syntax, syntaxPlugin, onlyColor }),
+        defineURLVarsPlugin({ syntax, syntaxPlugin, onlyColor }),
         ...atImportPlugins,
       ],
 
@@ -276,15 +278,15 @@ function getPluginsForPitch(loaderContext: LoaderContext) {
   const plugins = []
 
   if (!isThemeRequest) {
-    plugins.push(extractContextVarsPlugin(extractOptions))
+    plugins.push(defineContextVarsPlugin(extractOptions))
   }
 
   plugins.push(...getCommonPlugins(loaderContext, false, !isThemeFile))
 
   plugins.push(
     !isThemeRequest
-      ? extractVariablesPlugin(extractOptions)
-      : extractThemeVarsPlugin(extractOptions)
+      ? resolveContextVarsPlugin(extractOptions)
+      : defineThemeVariablesPlugin(extractOptions)
   )
 
   return plugins
@@ -303,7 +305,7 @@ function getPluginsForNormal(loaderContext: LoaderContext) {
   }
 
   plugins.push(
-    extractVarsPlugin({
+    makeThemeVarsDeclPlugin({
       syntax,
       onlyColor,
       isThemeFile,

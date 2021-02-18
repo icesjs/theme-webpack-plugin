@@ -19,6 +19,7 @@ import themeLoader from './loader/themeLoader'
 import { getOptions, PluginOptions, resolveDefaultExportPath, ValidPluginOptions } from './options'
 
 export type WebpackLoader = import('webpack').loader.Loader
+type Logger = import('webpack').Logger
 type CompilerOutput = NonNullable<WebpackOutput>
 
 export type CompilerOptions = {
@@ -38,6 +39,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   private readonly themeFiles = new Set<string>()
   private readonly themeRequestToken = getToken()
   private compilerOutput: CompilerOutput = {}
+  private logger: Logger | null = null
 
   constructor(opts?: PluginOptions) {
     this.options = getOptions(opts)
@@ -63,6 +65,9 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
     const pluginName = ThemeWebpackPlugin.name
     this.compilerOutput = Object.assign({}, compilerOptions.output)
+    if (typeof compiler.getInfrastructureLogger === 'function') {
+      this.logger = compiler.getInfrastructureLogger(pluginName)
+    }
 
     this.applyVarsLoader(compilerOptions)
 
@@ -82,23 +87,40 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     const { defaultTheme, themeExportPath } = this.options
     const themeFiles = await this.getThemeFiles(context)
     if (
+      this.themeFiles.size &&
       !themeFiles.some((file) => !this.themeFiles.has(file)) &&
       ![...this.themeFiles].some((file) => !themeFiles.includes(file))
     ) {
       return
     }
-    let validDefaultTheme
-    if (themeFiles.some((file) => getFileThemeName(file) === defaultTheme)) {
-      validDefaultTheme = defaultTheme
-    } else if (themeFiles.length) {
-      validDefaultTheme = getFileThemeName(themeFiles[0])
-    }
-    const code = this.getThemeModuleCode(themeFiles, validDefaultTheme || '', watchMode)
+
+    const validDefaultTheme = this.getValidDefaultTheme(themeFiles, defaultTheme)
+    const code = this.getThemeModuleCode(themeFiles, validDefaultTheme, watchMode)
 
     await this.writeToThemeModule(themeExportPath, code).catch((err) => {
       this.themeFiles.clear()
       throw err
     })
+  }
+
+  // 获取有效的默认主题
+  private getValidDefaultTheme(themeFiles: string[], defaultTheme: string) {
+    let validTheme
+    if (themeFiles.some((file) => getFileThemeName(file) === defaultTheme)) {
+      validTheme = defaultTheme
+    } else if (themeFiles.length) {
+      validTheme = getFileThemeName(themeFiles[0])
+    } else {
+      validTheme = ''
+    }
+    if (this.logger && (!validTheme || validTheme !== defaultTheme)) {
+      this.logger.info(
+        `No default theme named by '${defaultTheme}' was found${
+          validTheme ? `. The theme named by '${validTheme}' will used as the default` : ''
+        }`
+      )
+    }
+    return validTheme
   }
 
   // 写入主题模块文件

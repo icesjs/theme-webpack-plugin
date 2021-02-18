@@ -23,9 +23,8 @@ import {
   setVarsMessage,
 } from './helper'
 
-// 抽取主题变量
 // 消息 theme-vars 、 theme-root-vars
-export function extractThemeVarsPlugin(options: PluginOptions) {
+export function defineThemeVariablesPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps, onlyColor }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
@@ -39,9 +38,8 @@ export function extractThemeVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 抽取顶层变量
 // 消息 theme-vars、theme-root-vars
-export function extractTopScopeVarsPlugin(options: PluginOptions) {
+export function defineTopScopeVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
       for (const vars of getTopScopeVariables(root, regExps).values()) {
@@ -53,9 +51,8 @@ export function extractTopScopeVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 抽取上下文变量的插件（仅当前文件中声明的变量）
 // 消息 theme-context
-export function extractContextVarsPlugin(options: PluginOptions) {
+export function defineContextVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     Once: async (root, helper) => {
       // 这里不对值进行引用解析，是因为此时并不知道上下文中所有可用的变量
@@ -67,8 +64,8 @@ export function extractContextVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 抽取全局变量的插件（当前文件和导入文件中声明的变量）
-export function extractVariablesPlugin(options: PluginOptions) {
+// 完善本地变量的值解析
+export function resolveContextVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
@@ -90,7 +87,7 @@ export function extractVariablesPlugin(options: PluginOptions) {
 }
 
 // 提取外部资源引用URL变量
-export function extractURLVarsPlugin(options: PluginOptions) {
+export function defineURLVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     OnceExit: async (root, helper) => {
       const sourceFile = getSourceFile(helper, root)
@@ -118,8 +115,8 @@ export function extractURLVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 抽取变量插件，应用于主题声明文件和普通样式文件，修改原样式文件
-export function extractVarsPlugin(
+// 创建主题属性声明规则，修改原样式文件
+export function makeThemeVarsDeclPlugin(
   options: ExtendPluginOptions<ExtendType<Required<ThemeLoaderData>, { isThemeFile: boolean }>>
 ) {
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
@@ -145,8 +142,8 @@ export function extractVarsPlugin(
   }))
 }
 
-// 将变量声明为样式规则
-export function exportVarsPlugin(
+// 创建顶层作用域变量声明规则
+export function makeTopScopeVarsDeclPlugin(
   options: ExtendPluginOptions<Required<Pick<PluginOptions, 'urlMessages' | 'variablesMessages'>>>
 ) {
   return pluginFactory(options, ({ regExps, vars }) => ({

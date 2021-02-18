@@ -208,7 +208,7 @@ export function getProcessedPropertyValue(
     return originalValue
   }
 
-  const processor = getURLValueProcessor({ sourceFile, urlDeps, variables, regExps, helper, vars })
+  const processor = getURLValueProcessor({ sourceFile, urlDeps, regExps, helper, vars })
   const processedValue = processor(originalValue)
   urlDependencies.set(sourceFile, processedValue)
 
@@ -219,13 +219,13 @@ export function getProcessedPropertyValue(
 function getURLValueProcessor(options: {
   sourceFile: string
   urlDeps: Map<string, URLVarsDictItem>
-  variables: VarsDict
   regExps: ThemePropertyMatcher
   helper: Helpers
   vars: VariablesContainer
 }) {
-  const { sourceFile, urlDeps, variables, regExps, helper, vars } = options
-  const context = path.dirname(sourceFile)
+  const { sourceFile, urlDeps, regExps, helper, vars } = options
+  const { variables, context } = vars
+  const basedir = path.dirname(sourceFile)
   return (originalValue: string) => {
     const parsed = valueParser(originalValue)
     let updated = false
@@ -234,14 +234,14 @@ function getURLValueProcessor(options: {
       if (isURLFunctionNode(node)) {
         // 是一个url或image-set函数调用
         for (const urlItem of urlDeps.values()) {
-          if (updateURLFunctionValue(node, urlItem, context)) {
+          if (updateURLFunctionValue(node, urlItem, basedir)) {
             updated = true
           }
         }
       } else if (node.type === 'word' && regExps[0].test(node.value)) {
         // 是一个变量引用
         const ident = makeVariableIdent(node.value)
-        const varsItem = variables.get(ident)
+        const varsItem = variables.get(ident) || context.get(ident)
         if (varsItem) {
           // 递归处理变量值
           const { originalValue } = varsItem
@@ -259,7 +259,7 @@ function getURLValueProcessor(options: {
 }
 
 // 更新url函数节点中的url值
-function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, context: string) {
+function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, basedir: string) {
   const { data, from } = varsDict
   const relativeUrls = new Set([...data].filter((url) => isRelativePath(url)))
   if (!relativeUrls.size) {
@@ -274,7 +274,7 @@ function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, c
     if (relativeUrls.has(url)) {
       // 转换路径到当前文件上下文
       const rewrittenUrl = normalizeRelativePath(
-        path.relative(context, path.join(fromContext, url))
+        path.relative(basedir, path.join(fromContext, url))
       )
       if (rewrittenUrl !== normalizeRelativePath(url)) {
         updated = true
