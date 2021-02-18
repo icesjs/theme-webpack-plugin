@@ -1,23 +1,26 @@
 import * as path from 'path'
 import valueParser from 'postcss-value-parser'
-import { Rule } from 'postcss'
+import { Node } from 'postcss'
 import { hasResourceURL } from '../colors'
 import {
   determineCanUseAsThemeVarsByValue,
   ExtendPluginOptions,
   ExtendType,
   getTopScopeVariables,
-  parseUrlPaths,
+  insertRawBefore,
+  parseURLPaths,
   pluginFactory,
   PluginOptions,
   ThemeLoaderData,
   toVarsDict,
+  VarsDictItem,
 } from './tools'
 import {
   addTitleComment,
-  createVarsRootRuleNode,
+  createDeclarations,
+  createRootRule,
+  createVarsRootRule,
   getDeclProcessor,
-  getProcessedPropertyValue,
   getSourceFile,
   getVarsMessages,
   setVarsMessage,
@@ -99,7 +102,7 @@ export function defineURLVarsPlugin(options: PluginOptions) {
         if (!hasResourceURL(value)) {
           continue
         }
-        const paths = parseUrlPaths(value)
+        const paths = parseURLPaths(value, true)
         if (paths.size) {
           setVarsMessage({
             ...rest,
@@ -130,14 +133,16 @@ export function makeThemeVarsDeclPlugin(
         : pluginContext.vars.variables
 
       // 写入:root规则声明到文件
-      const node = createVarsRootRuleNode({
+      const node = createVarsRootRule({
         ...pluginContext,
         asComment: !isThemeFile,
         properties,
         helper,
       })
 
-      addTitleComment(node, helper)
+      if (node && isThemeFile) {
+        addTitleComment(node, helper)
+      }
     },
   }))
 }
@@ -146,32 +151,28 @@ export function makeThemeVarsDeclPlugin(
 export function makeTopScopeVarsDeclPlugin(
   options: ExtendPluginOptions<Required<Pick<PluginOptions, 'urlMessages' | 'variablesMessages'>>>
 ) {
-  return pluginFactory(options, ({ regExps, vars }) => ({
+  return pluginFactory(options, ({ ...pluginContext }) => ({
     Once: async (root, helper) => {
-      const { variables } = vars
-      let rootRule: Rule | undefined
-
-      for (const varsItem of variables.values()) {
-        const { isRootDecl, originalName } = varsItem
-
-        const decl = helper.decl({
-          value: getProcessedPropertyValue(varsItem, vars, regExps, helper),
-          prop: originalName,
-        })
-
-        if (!isRootDecl) {
-          root.append(decl)
-          continue
-        }
-
-        if (!rootRule) {
-          rootRule = helper.rule({
-            selector: ':root',
-            nodes: [],
-          })
-          root.append(rootRule)
-        }
-        rootRule.append(decl)
+      const { vars, syntax, regExps } = pluginContext
+      const properties = new Map<string, VarsDictItem>()
+      const rootProperties = new Map<string, VarsDictItem>()
+      for (const varsItem of vars.variables.values()) {
+        const { ident, isRootDecl } = varsItem
+        ;(isRootDecl ? rootProperties : properties).set(ident, varsItem)
+      }
+      if (properties.size) {
+        root.append(createDeclarations({ ...pluginContext, properties, helper }, false, 0).decls)
+      }
+      if (rootProperties.size) {
+        const decls = createDeclarations(
+          { ...pluginContext, properties: rootProperties, helper },
+          false,
+          2
+        ).decls
+        root.append(createRootRule(decls, syntax, regExps, helper))
+      }
+      if (root.first) {
+        addTitleComment(root.first, helper, getSourceFile(helper, root))
       }
     },
   }))
@@ -190,24 +191,45 @@ export function resolveImportPlugin(
       if (!sourceFile) {
         return
       }
-      const context = path.dirname(sourceFile)
-
       for (const node of root.nodes) {
-        if (node.type === 'atrule' && node.name === 'import') {
+        if (node.type === 'atrule' && node.name === 'import' && node.params) {
           const { params } = node
-          if (hasResourceURL(params)) {
-            continue
-          }
-          valueParser(node.params).walk((child) => {
-            if (child.type === 'string' && child.value) {
-              uris.add(child.value)
+          const nodes = valueParser(params).nodes || []
+          if (nodes.length === 1 && nodes[0].type === 'string') {
+            if (nodes[0].value) {
+              uris.add(nodes[0].value)
             }
-          })
+          } else {
+            for (const uri of parseURLPaths(nodes, false)) {
+              uris.add(uri)
+            }
+          }
         }
       }
+      const context = path.dirname(sourceFile)
       for (const uri of uris) {
         await resolve(uri, sourceFile, context)
       }
+    },
+  }))
+}
+
+// 保留节点的格式
+export function preserveRawStylePlugin(options: PluginOptions) {
+  return pluginFactory(options, ({}) => ({
+    Once: async (root) => {
+      root.append = new Proxy(root.append, {
+        apply(target, thisArg, argArray: Node[]) {
+          const nodes = [...argArray]
+          const res = Reflect.apply(target, thisArg, argArray)
+          for (const node of nodes) {
+            if (root.first !== node) {
+              insertRawBefore(node, 2)
+            }
+          }
+          return res
+        },
+      })
     },
   }))
 }

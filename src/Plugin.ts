@@ -114,11 +114,10 @@ class ThemeWebpackPlugin implements WebpackPlugin {
       validTheme = ''
     }
     if (this.logger && (!validTheme || validTheme !== defaultTheme)) {
-      this.logger.info(
-        `No default theme named by '${defaultTheme}' was found${
-          validTheme ? `. The theme named by '${validTheme}' will used as the default` : ''
-        }`
-      )
+      this.logger.warn(`No default theme named by '${defaultTheme}' was found`)
+      if (validTheme) {
+        this.logger.warn(`The theme named by '${validTheme}' will used as the default`)
+      }
     }
     return validTheme
   }

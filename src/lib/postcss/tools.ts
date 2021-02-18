@@ -1,5 +1,5 @@
 import { getHashDigest } from 'loader-utils'
-import { AtRule, Declaration, Plugin, Root, Rule, Syntax } from 'postcss'
+import { AtRule, Declaration, Node, Plugin, Root, Rule, Syntax } from 'postcss'
 import valueParser, {
   FunctionNode as FunctionValueNode,
   Node as ValueNode,
@@ -88,12 +88,10 @@ export type VariablesContainer = {
 }
 
 type PluginContext<T> = ExtendType<T, { regExps: ThemePropertyMatcher; vars: VariablesContainer }>
+type PluginCreator<T> = (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
 
 // 辅助创建插件
-export function pluginFactory<T extends PluginOptions>(
-  options: T,
-  createPlugin: (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
-) {
+export function pluginFactory<T extends PluginOptions>(options: T, createPlugin: PluginCreator<T>) {
   const { syntax, urlMessages, contextMessages, variablesMessages, ...rest } = options
   const contextDict = toVarsDict(contextMessages)
   const variablesDict = toVarsDict(variablesMessages)
@@ -262,36 +260,86 @@ export function toVarsDict<T extends VarsDictItem>(
 }
 
 // 判断是否是一个URL函数调用节点
-export function isURLFunctionNode(node: ValueNode): node is FunctionValueNode {
-  return (
-    node.type === 'function' && (node.value === 'url' || /(?:-webkit-)?image-set/.test(node.value))
-  )
+export function isURLFunctionNode(
+  node: ValueNode,
+  includeImageSet: boolean
+): node is FunctionValueNode {
+  if (node.type !== 'function') {
+    return false
+  }
+  return node.value === 'url' || (includeImageSet && /(?:-webkit-)?image-set/.test(node.value))
 }
 
 // 解析属性声明值里的URL路径
-export function parseUrlPaths(value: string) {
-  const paths = new Set<string>()
-  valueParser(value).walk((node) => {
-    if (!isURLFunctionNode(node)) {
-      return
-    }
-    if (node.value === 'url') {
-      const { nodes } = node
-      if (nodes.length !== 0 && nodes[0].type === 'string') {
-        paths.add(nodes[0].value)
-      } else {
-        paths.add(valueParser.stringify(nodes))
-      }
-    } else {
-      valueParser.walk(node.nodes, (child) => {
-        if (child.type === 'string' && child.value) {
-          paths.add(child.value)
-        }
-      })
-    }
-  })
+export function parseURLPaths(value: string | ValueNode[], includeImageSet = true) {
+  const paths: string[] = []
 
-  return new Set([...paths].filter((path) => path.trim()))
+  if (typeof value === 'string' || Array.isArray(value)) {
+    const nodes = typeof value === 'string' ? valueParser(value).nodes : value
+    valueParser.walk(nodes, (node) => {
+      if (!isURLFunctionNode(node, includeImageSet)) {
+        return
+      }
+      if (node.value === 'url') {
+        const { nodes } = node
+        if (nodes.length !== 0 && nodes[0].type === 'string') {
+          paths.push(nodes[0].value)
+        } else {
+          paths.push(valueParser.stringify(nodes))
+        }
+      } else {
+        valueParser.walk(node.nodes, (child) => {
+          if (child.type === 'string' && child.value) {
+            paths.push(child.value)
+          }
+        })
+      }
+    })
+  }
+
+  return new Set(paths.filter((path) => path.trim()))
+}
+
+// 赋值raw before样式
+export function insertRawBefore(node: Node | undefined, length = 1) {
+  if (node?.raws) {
+    const raws = node.raws
+    let defaultType
+    switch (node.type) {
+      case 'atrule':
+      case 'rule':
+        defaultType = 'beforeRule'
+        break
+      case 'decl':
+        defaultType = 'beforeDecl'
+        break
+      case 'comment':
+        defaultType = 'beforeComment'
+    }
+    if (!raws.before) {
+      delete raws.before
+    }
+    const before = (node.raw('before', defaultType) || '').replace(/(.|\r?\n)\1+/g, '$1')
+    raws.before = before.padStart(length, before)
+  }
+  return node
+}
+
+// 添加缩进
+export function setIndentedRawBefore(node: Node | undefined, indentLength = 2) {
+  if (node?.raws) {
+    const raws = node.raws
+    let before = raws.before
+    if (!before) {
+      insertRawBefore(node, 1)
+      before = raws.before || ''
+    }
+    const indent = ''.padEnd(
+      Math.max(before.replace(/\r?\n/g, '').match(/^[\u0020]*/)![0].length, indentLength)
+    )
+    raws.before = before.replace(/[\u0020]/g, '') + indent
+  }
+  return node
 }
 
 // 获取引用类型变量

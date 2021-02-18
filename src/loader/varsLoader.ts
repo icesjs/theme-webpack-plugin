@@ -23,6 +23,7 @@ import {
   defineURLVarsPlugin,
   makeThemeVarsDeclPlugin,
   makeTopScopeVarsDeclPlugin,
+  preserveRawStylePlugin,
   resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
@@ -171,7 +172,7 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
 
   // 生成一个临时字符串文件嵌入到当前解析文件中
   return (
-    await postcss(plugins).process('\n', {
+    await postcss(plugins).process('', {
       syntax: syntaxPlugin,
       from: filename,
       map: false,
@@ -231,9 +232,11 @@ function getCommonPlugins(
   const { syntax, cssModules, onlyColor } = options
   const { plugins: atImportPlugins = [], ...restImportOptions } = importOptions
   const { plugin: resolveImportPlugin, filter, resolve } = getResolveImportPlugin(loaderContext)
+  const pluginOptions = { syntax, syntaxPlugin, onlyColor }
 
   const plugins = [
     resolveImportPlugin,
+    preserveRawStylePlugin(pluginOptions),
     atImport({
       filter,
       resolve,
@@ -242,7 +245,8 @@ function getCommonPlugins(
 
       plugins: [
         resolveImportPlugin,
-        defineURLVarsPlugin({ syntax, syntaxPlugin, onlyColor }),
+        preserveRawStylePlugin(pluginOptions),
+        defineURLVarsPlugin(pluginOptions),
         ...atImportPlugins,
       ],
 
@@ -271,7 +275,7 @@ function getLoaderOptions(loaderContext: WebpackLoaderContext) {
 }
 
 // 获取pitch阶段的处理插件
-function getPluginsForPitch(loaderContext: LoaderContext) {
+function getPluginsForPitchStage(loaderContext: LoaderContext) {
   const { isThemeRequest, syntaxPlugin, options, isThemeFile } = loaderContext.data
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
@@ -293,7 +297,7 @@ function getPluginsForPitch(loaderContext: LoaderContext) {
 }
 
 // 获取normal阶段的处理插件
-function getPluginsForNormal(loaderContext: LoaderContext) {
+function getPluginsForNormalStage(loaderContext: LoaderContext) {
   const { data } = loaderContext
   const { options, syntaxPlugin, isThemeFile } = data
   const { urlMessages, contextMessages, variablesMessages } = data as Required<LoaderData>
@@ -384,7 +388,7 @@ export const pitch: PluginLoader['pitch'] = function () {
       }
     }
 
-    const processor = postcss(getPluginsForPitch(loaderContext))
+    const processor = postcss(getPluginsForPitchStage(loaderContext))
     const { messages } = await processor.process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
@@ -401,9 +405,8 @@ export const pitch: PluginLoader['pitch'] = function () {
 // normal 阶段
 const varsLoader: PluginLoader = function (source, map) {
   const loaderContext = this as LoaderContext
-  const { data, resourcePath, sourceMap } = loaderContext
-  const { isStylesheet, options, syntaxPlugin } = data
-  const { syntax } = options
+  const { data, resourcePath } = loaderContext
+  const { isStylesheet, syntaxPlugin } = data
 
   if (!isStylesheet) {
     this.callback(null, source, map)
@@ -411,22 +414,16 @@ const varsLoader: PluginLoader = function (source, map) {
   }
 
   const callback = this.async() || (() => {})
-  postcss(getPluginsForNormal(loaderContext))
+  postcss(getPluginsForNormalStage(loaderContext))
     .process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      // less 解析器在进行序列化时，报sourceMap错误
-      map:
-        sourceMap && syntax !== 'less'
-          ? {
-              prev: undefined,
-              inline: false,
-              annotation: false,
-            }
-          : false,
+      // 因为当前loader是最先执行的loader，且视情况仅对源码插入和替换了一些内容
+      // 所以映射文件这里不处理，交给余下loader去处理
+      map: false,
     })
-    .then(({ css, map }) => callback(null, css, map ? map.toJSON() : undefined))
+    .then(({ css }) => callback(null, css))
     .catch(callback)
 }
 

@@ -9,7 +9,7 @@ type LoaderContext = import('webpack').loader.LoaderContext
 const matchModuleImport = /^~(?:[^/]+|[^/]+\/|@[^/]+[/][^/]+|@[^/]+\/?|@[^/]+[/][^/]+\/)$/
 
 export function escapeRegExpCharacters(str: string): string {
-  return str.replace(/[|/\\{}()[\]^$+*?.]/g, '\\$&').replace(/-/g, '\\x2d')
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '\\x2d')
 }
 
 export async function resolveStyle(
