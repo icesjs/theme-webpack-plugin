@@ -11,27 +11,33 @@ type Theme = {
 
 var hasOwnProperty = Object.prototype.hasOwnProperty
 var themeStorage = {} as { [name: string]: Theme }
-var link: HTMLLinkElement | null = null
+var currentLink: HTMLLinkElement | null = null
 var abort: Function | null = null
 var deactivate: Function | null = null
 var defaultThemeName = ''
 
-function removeLink() {
+function removeLink(link: HTMLLinkElement | null) {
   if (link) {
-    link.onerror = link.onload = null
     var parent = link.parentNode
     if (parent) {
       parent.removeChild(link)
     }
-    link = null
   }
 }
 
-function createLink() {
-  removeLink()
-  link = document.createElement('link')
+function createLink(loadHandler: (event: any) => Error | null) {
+  var link = document.createElement('link')
   link.rel = 'stylesheet'
   link.type = 'text/css'
+  link.onerror = link.onload = function (event: any) {
+    link.onerror = link.onload = null
+    if (loadHandler(event)) {
+      removeLink(link)
+    } else {
+      removeLink(currentLink)
+      currentLink = link
+    }
+  }
   return link
 }
 
@@ -43,28 +49,29 @@ function getContainer() {
   return parent
 }
 
-function insertLink(parent: HTMLElement, link: HTMLLinkElement) {
-  parent.appendChild(link)
-}
-
 function createLoadHandler(name: string, href: string, callback: Function) {
   return function (event: any) {
+    var err
     if (event.type === 'load') {
-      callback(null)
+      err = null
     } else {
       var type = event && (event.type === 'load' ? 'missing' : event.type)
       var request = (event && event.target && event.target.href) || href
-      var err = new Error('Loading theme chunk "' + name + '" failed.\n(' + href + ')') as any
+      err = new Error('Loading theme chunk "' + name + '" failed.\n(' + href + ')') as any
       err.code = 'THEME_CHUNK_LOAD_FAILED'
       err.type = type || 'failed'
       err.request = request
-      callback(err)
     }
+    callback(err)
+    return err
   }
 }
 
-function createAbortHandler(name: string, href: string, reject: Function) {
+function createAbortHandler(name: string, link: HTMLLinkElement, reject: Function) {
   return function () {
+    link.onerror = link.onload = null
+    removeLink(link)
+    var href = link.href
     var err = new Error('Request for theme of "' + name + '" are aborted.\n(' + href + ')') as any
     err.code = 'THEME_CHUNK_LOAD_ABORTED'
     err.type = 'abort'
@@ -80,33 +87,28 @@ function loadTheme(name: string, href: string) {
       abort = null
     }
     if (!href) {
-      resolve()
+      removeLink(currentLink)
+      return resolve()
     }
     var parent = getContainer()
-    var link = createLink()
-    abort = createAbortHandler(name, href, reject)
-    link.onerror = link.onload = createLoadHandler(name, href, function (err: Error | null) {
-      link.onerror = link.onload = abort = null
-      if (err) {
-        reject(err)
-      } else {
-        resolve()
-      }
-    })
+    var link = createLink(
+      createLoadHandler(name, href, function (err: Error | null) {
+        abort = null
+        if (err) {
+          reject(err)
+        } else {
+          resolve()
+        }
+      })
+    )
+    abort = createAbortHandler(name, link, reject)
     link.href = href
-    insertLink(parent, link)
+    parent.appendChild(link)
   })
 }
 
 function activateTheme(name: string, href: string) {
-  var promise: Promise<any>
-  if (name === defaultThemeName) {
-    removeLink()
-    promise = Promise.resolve()
-  } else {
-    promise = loadTheme(name, href)
-  }
-  return promise.then(function () {
+  return loadTheme(name, name === defaultThemeName ? '' : href).then(function () {
     if (deactivate) {
       deactivate()
     }
@@ -117,22 +119,32 @@ function activateTheme(name: string, href: string) {
 }
 
 function defineTheme(name: string, initPath: string) {
-  var href = initPath
+  var href = initPath.trim()
   var activated = false
+
+  var activate = function () {
+    return activateTheme(name, href).then(function (deactivate: Function) {
+      activated = true
+      deactivate(function () {
+        activated = false
+      })
+      return name
+    })
+  }
+
   return Object.defineProperties(
     {},
     {
       name: { value: name },
       href: {
         set(path: any) {
-          if (typeof path === 'string') {
-            var prev = href
-            href = path.trim()
-            if (activated && prev !== href) {
-              activateTheme(name, href).catch(function (err) {
-                throw err
-              })
-            }
+          if (typeof path !== 'string') {
+            return
+          }
+          var prev = href
+          href = path.trim()
+          if (activated && prev !== href) {
+            activate().then()
           }
         },
         get() {
@@ -149,13 +161,7 @@ function defineTheme(name: string, initPath: string) {
           if (activated) {
             return Promise.resolve(name)
           }
-          return activateTheme(name, href).then(function (deactivate: Function) {
-            activated = true
-            deactivate(function () {
-              activated = false
-            })
-            return name
-          })
+          return activate()
         },
       },
     }

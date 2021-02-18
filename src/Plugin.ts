@@ -158,7 +158,7 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
     const imports = []
     const themes = []
     const hotUpdateResources: { name: string; path: string }[] = []
-    const runtime = JSON.stringify(path.join(__dirname, 'lib/runtime'))
+    const runtime = JSON.stringify(path.join(__dirname, 'lib/asyncRuntime'))
 
     if (esModule) {
       imports.push(`import registerThemes from ${runtime}`)
