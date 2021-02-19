@@ -129,7 +129,7 @@ export interface PluginOptions {
    */
   extract?: boolean
   /**
-   * 自定义文档根节点 <code>html</code> 元素上设置主题的属性名称。<code>extract</code> 配置项为 <code>true</code> 时有效。<br>
+   * 自定义文档根节点 <code>html</code> 元素上设置主题的属性名称。<code>extract</code> 配置项为 <code>false</code> 时有效。<br>
    * 默认为 <code>data-theme</code> 。
    */
   themeAttrName?: string

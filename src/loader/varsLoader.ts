@@ -264,7 +264,17 @@ function getCommonPlugins(
   ] as AcceptedPlugin[]
 
   if (allowCssModules && cssModules) {
-    plugins.push(require('postcss-modules')(Object.assign({}, cssModules)))
+    plugins.push(
+      require('postcss-modules')(
+        Object.assign(
+          {
+            getJSON: () => {},
+            exportGlobals: false,
+          },
+          cssModules
+        )
+      )
+    )
   }
 
   return plugins
@@ -308,7 +318,7 @@ function getPluginsForNormalStage(loaderContext: LoaderContext) {
   const plugins = []
 
   if (!isThemeFile) {
-    plugins.push(...getCommonPlugins(loaderContext, true, true))
+    plugins.push(...getCommonPlugins(loaderContext, true, false))
   }
 
   plugins.push(

@@ -2,6 +2,7 @@ import vm from 'vm'
 import * as path from 'path'
 import * as babel from '@babel/core'
 import { PluginItem } from '@babel/core'
+import { DOMWindow } from 'jsdom'
 import { toAsyncFunction, toCallExpression } from './asyncConverter'
 import { hasOwnProperty, isEsModuleExport } from './utils'
 
@@ -20,19 +21,17 @@ type VirtualModuleExports = {
 
 type VirtualModule = {
   readonly id: string
+  readonly parents: Set<VirtualModule>
+  promise: PromiseLike<VirtualModuleExports>
   exports: VirtualModuleExports
+  loaded: boolean
 }
 
 type AsyncWebpackRequire = (request: string) => Promise<VirtualModule>
 type VirtualModuleResolve = (module: VirtualModule) => void
 type VirtualModuleReject = (reason: Error) => void
 
-interface BrowserModule {
-  btoa(): string
-  atob(): string
-}
-
-interface VirtualWebpackModule extends BrowserModule {
+interface VirtualWebpackModule extends DOMWindow {
   resolve: VirtualModuleResolve
   reject: VirtualModuleReject
   module: VirtualModule
@@ -44,19 +43,20 @@ interface VirtualWebpackModule extends BrowserModule {
   hot?: null
 }
 
-// 可能要用到的浏览器环境方法
-// css-loader就用到了btoa来将sourceMap转换为base64格式并附加到样式文件里
-function getBrowserModule() {
-  return {
-    // base64编码
-    btoa(data: string) {
-      return Buffer.from(data).toString('base64')
-    },
-    // base64解码
-    atob(data: string): string {
-      return new Buffer(data, 'base64').toString('utf8')
-    },
-  } as BrowserModule
+// 浏览器环境模拟
+let BrowserWindow: DOMWindow | null = null
+
+// 浏览器环境模拟
+function getBrowserWindow() {
+  if (!BrowserWindow) {
+    try {
+      const { JSDOM } = require('jsdom')
+      BrowserWindow = new JSDOM(`<html lang='en'><head><title></title></head><body/></html>`, {
+        url: 'http://localhost:8080',
+      }).window
+    } catch (e) {}
+  }
+  return BrowserWindow
 }
 
 // 编译转换代码
@@ -64,7 +64,9 @@ function transformCode(originalCode: string, plugins: PluginItem[] = []) {
   return (
     babel.transform(originalCode, {
       plugins,
+      filename: 'vm.js',
       babelrc: false,
+      configFile: false,
       presets: [
         [
           require('@babel/preset-env'),
@@ -127,9 +129,15 @@ function getPublicPath(loaderContext: LoaderContext) {
   return Reflect.get(data, publicPathSymbol)
 }
 
-// 清理缓存
-function clearModuleCache(loaderContext: LoaderContext) {
+// 清理缓存与浏览器虚拟环境
+function clear(loaderContext: LoaderContext) {
   getModuleCache(loaderContext).clear()
+  try {
+    if (BrowserWindow) {
+      BrowserWindow.close()
+      BrowserWindow = null
+    }
+  } catch (e) {}
 }
 
 // 获取模块缓存的容器
@@ -153,10 +161,11 @@ function getModuleFromCache(loaderContext: LoaderContext, id: string) {
   return null
 }
 
-// 根据请求地址获取模块的ID
-function getModuleIdFromRequest(loaderContext: LoaderContext, context: string, request: string) {
+// 根据请求资源获取模块的ID
+function getModuleIdFromRequest(loaderContext: LoaderContext, context: string, resource: string) {
   return new Promise<string>((resolve, reject) => {
-    loaderContext.resolve(context, request, (err, result) => (err ? reject(err) : resolve(result)))
+    // 使用webpack的resolver来解析资源
+    loaderContext.resolve(context, resource, (err, result) => (err ? reject(err) : resolve(result)))
   })
 }
 
@@ -165,11 +174,15 @@ function defineVirtualModule(loaderContext: LoaderContext, id: string, ...defaul
   const module: VirtualModule =
     getModuleFromCache(loaderContext, id) ||
     Object.defineProperties(
-      // exports 可以覆写
-      { exports: Object.defineProperty({}, virtualModuleSymbol, { value: true }) },
       {
-        // id 只读
+        loaded: false,
+        promise: null,
+        exports: Object.defineProperty({}, virtualModuleSymbol, { value: true }),
+      },
+      // 下面两个属性只读
+      {
         id: { value: path.normalize(id || '') },
+        parents: { value: new Set<VirtualModule>() },
       }
     )
   if (module.id) {
@@ -177,6 +190,8 @@ function defineVirtualModule(loaderContext: LoaderContext, id: string, ...defaul
   }
   if (defaults.length && !isEsModuleExport(module.exports)) {
     if (!hasOwnProperty(module.exports, virtualModuleSymbol)) {
+      // 模块的导出被覆写了(module.exports = xxx 之类)
+      // 这里重设下模块导出
       module.exports = Object.defineProperty({}, virtualModuleSymbol, { value: true })
     }
     // 声明默认导出，将其定义为一个es模块
@@ -193,22 +208,21 @@ function getVirtualModuleResolve(
   loaderContext: LoaderContext,
   id: string,
   resolve: (value: any) => void
-) {
-  return ((module: VirtualModule) => {
+): VirtualModuleResolve {
+  return (module: VirtualModule) => {
     const { exports } = module
     if (isEsModuleExport(exports)) {
-      // 已经是es模块导出
       resolve(exports)
     } else {
-      // commonjs模块导出，转换为es模块导出
+      // commonjs模块导出，转换为es模块导出，后面返回模块时，再作统一commonjs模块转换处理
       resolve(defineVirtualModule(loaderContext, id, exports).exports)
     }
-  }) as VirtualModuleResolve
+  }
 }
 
 // 确保reject的是一个异常对象
-function getVirtualModuleReject(reject: (reason?: any) => void) {
-  return ((reason?: any) => {
+function getVirtualModuleReject(reject: (reason?: any) => void): VirtualModuleReject {
+  return (reason?: any) => {
     if (reason instanceof Error) {
       reject(reason)
     } else if (typeof reason !== 'undefined') {
@@ -216,7 +230,7 @@ function getVirtualModuleReject(reject: (reason?: any) => void) {
     } else {
       reject(new Error('Unknown Error'))
     }
-  }) as VirtualModuleReject
+  }
 }
 
 // 加载webpack模块
@@ -250,29 +264,78 @@ function loadWebpackModule(
   })
 }
 
-// 异步require方法，用于桥接commonjs的require到webpack的loadModule
-function getAsyncWebpackRequire(loaderContext: LoaderContext, context: string) {
-  return (async (request: string) => {
-    const id = await getModuleIdFromRequest(loaderContext, context, request)
-    // 这里先从缓存模块中获取模块，避免重复的模块代码执行
-    // 重复加载执行模块代码，除非是明确知道模块是函数式定义的，否则就不能重复加载
-    // 重复执行代码，意味着模块内部的变量全部重新初始化，很多时候这些变量在一次运行期间只能初始化一次
-    // 在这里的场景，一次运行指当前loader的一次运行周期，loader执行完虚拟机执行环境就可以释放掉了
-    // 因为代码是直接从源码编译放虚拟机运行的，所以也不会进入到node的模块系统
-    // 理论上虚拟机环境可以仿真出浏览器环境来运行webpack的模块代码
-    const module = getModuleFromCache(loaderContext, id)
-    if (module) {
-      return module
+// 检查循环依赖
+function isCycleDependency(parentModule: VirtualModule, childModule: VirtualModule) {
+  childModule.parents.add(parentModule)
+  const parents = new Set<VirtualModule>()
+  // 搜集所有父模块依赖
+  const gather = (module: VirtualModule) => {
+    parents.add(module)
+    for (const parent of module.parents) {
+      if (!parents.has(parent)) {
+        gather(parent)
+      }
     }
-    return new Promise((resolve, reject) =>
-      loadWebpackModule(
-        loaderContext,
-        request,
-        getVirtualModuleResolve(loaderContext, id, resolve),
-        getVirtualModuleReject(reject)
+  }
+  gather(parentModule)
+  // 如果父模块依赖里面，包含当前模块，则是循环依赖
+  return parents.has(childModule)
+}
+
+// 处理模块导出兼容
+function resolveModuleExports(exports: VirtualModuleExports) {
+  // 从虚拟模块过来的导出，都统一处理成es模块了的
+  const defaultExport = exports.default
+  if (hasOwnProperty(defaultExport, 'default')) {
+    return defaultExport
+  }
+  // 如果虚拟机运行的模块期望是es模块环境，会取default属性
+  // 有些模块代码本身没做兼容处理，这里我们用一个代理，捕获default属性访问，并返回实际的模块导出内容
+  return new Proxy(defaultExport, {
+    get(target, prop, receiver) {
+      return prop === 'default' ? target : Reflect.get(target, prop, receiver)
+    },
+  })
+}
+
+// 异步require方法，用于桥接commonjs的require到webpack的loadModule
+function getAsyncWebpackRequire(
+  loaderContext: LoaderContext,
+  context: string,
+  parentModule: VirtualModule
+): AsyncWebpackRequire {
+  return async (request: string) => {
+    const loadersAndResource = request.split('!')
+    const resource = loadersAndResource.pop()!
+    const id = await getModuleIdFromRequest(loaderContext, context, resource)
+    const resourceRequest = `${loadersAndResource.join('!')}!${id}`
+    const module = defineVirtualModule(loaderContext, id)
+
+    if (isCycleDependency(parentModule, module)) {
+      // 返回当前模块已经导出了的内容
+      return resolveModuleExports(
+        await new Promise((resolve) => {
+          getVirtualModuleResolve(loaderContext, id, resolve)(module)
+        })
       )
-    )
-  }) as AsyncWebpackRequire
+    }
+
+    module.promise =
+      module.promise ||
+      new Promise((resolve, reject) =>
+        loadWebpackModule(
+          loaderContext,
+          resourceRequest,
+          getVirtualModuleResolve(loaderContext, id, resolve),
+          getVirtualModuleReject(reject)
+        )
+      )
+
+    // 等待模块完成加载
+    const exports = await module.promise
+    module.loaded = true
+    return resolveModuleExports(exports)
+  }
 }
 
 // 创建虚拟的webpack模块上下文对象
@@ -281,12 +344,12 @@ function createVirtualWebpackModule(
   id: string,
   resolve: VirtualModuleResolve,
   reject: VirtualModuleReject
-) {
+): VirtualWebpackModule {
   const module = defineVirtualModule(loaderContext, id)
   const context = path.dirname(id)
-  const asyncWebpackRequire = getAsyncWebpackRequire(loaderContext, context)
-  return {
-    ...getBrowserModule(),
+  const asyncWebpackRequire = getAsyncWebpackRequire(loaderContext, context, module)
+  // 提供一个虚拟浏览器运行环境
+  return Object.assign(Object.create(getBrowserWindow()), {
     resolve,
     reject,
     module,
@@ -295,13 +358,9 @@ function createVirtualWebpackModule(
     __webpack_public_path__: getPublicPath(loaderContext),
     __non_webpack_require__: require, // 这个require是commonjs模块系统里的同步加载，一般浏览器端的代码，用不到（electron环境等可以用到）
     __webpack_require__: asyncWebpackRequire,
-    // 这个require方法不会由webpack来解析，因为是我们自己在虚拟出运行环境来执行webpack的模块代码
-    // 以前webpack在loader上下文里提供了一个exec方法来执行模块代码，后来被移除掉了，不知道为啥就不提供了
-    // 而且以前的exec方法的实现，简单粗暴直接调用node module的内部私有方法执行模块，也许存在较多问题
-    // 另node较新版本，已经提供了更好的虚拟机来帮助快速运行一段动态生成的模块代码，估计这个应用场景有很大需求
     // 这里我们通过一个异步方法包裹，将模块内部的同步require通过babel的抽象语法树来转译成异步调用，以适配webpack模块的异步加载
     require: asyncWebpackRequire,
-  } as VirtualWebpackModule
+  })
 }
 
 /**
@@ -328,16 +387,13 @@ export default function exec(loaderContext: LoaderContext, source: string, publi
       )
     )
   )
-    .then((exports: VirtualModule['exports']) => {
-      // 清理下模块缓存
-      // 清不清其实无所谓，loaderContext在执行完loader，webpack就会释放掉，所以也不会有内存泄露
-      // 这里清理下，以防止可能出现的loaderContext未被释放的情况（不大可能）
-      clearModuleCache(loaderContext)
-      // 转换为commonjs模块导出
-      return isEsModuleExport(exports) ? exports.default : exports
+    .then((exports: VirtualModuleExports) => {
+      // 清理下
+      clear(loaderContext)
+      return resolveModuleExports(exports)
     })
     .catch((err) => {
-      clearModuleCache(loaderContext)
+      clear(loaderContext)
       throw err
     })
 }
