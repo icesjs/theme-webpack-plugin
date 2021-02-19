@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as babel from '@babel/core'
 import { PluginItem } from '@babel/core'
 import { DOMWindow } from 'jsdom'
+import { getHashDigest } from 'loader-utils'
 import { toAsyncFunction, toCallExpression } from './asyncConverter'
 import { hasOwnProperty, isEsModuleExport } from './utils'
 
@@ -91,23 +92,33 @@ function getTransformPlugin(loaderContext: LoaderContext, module: VirtualModule)
   return plugin
 }
 
+// 代码编译缓存
+let codeCache = new Map<string, string>()
+
 // 使用虚拟机编译运行模块代码
 function evalModuleCode(
   loaderContext: LoaderContext,
   originalCode: string,
   webpackModule: VirtualWebpackModule
 ) {
-  // 转换代码
-  // 两次调用，第一次转换为commonjs代码，第二次转换为异步代码
-  // 异步代码使用异步函数包裹，并通过传入resolve、reject函数来回传模块导出
-  const code = transformCode(
-    `(async (resolve, reject) => {\n${transformCode(
-      originalCode
-    )}\n\n})(void 0, void 0).then(() => resolve(module), reject)`,
-    // 第二次调用transformCode时使用异步转换插件，将require、__webpack_require__方法转换为异步调用
-    // 这里需要转为异步的原因是，webpack转换资源模块是异步的（通过loader链来转换）
-    getTransformPlugin(loaderContext, webpackModule.module)
-  )
+  let code: string
+  const hash = getHashDigest(Buffer.from(originalCode), 'md4', 'hex', 32)
+  if (codeCache.has(hash)) {
+    code = codeCache.get(hash)!
+  } else {
+    // 转换代码
+    // 两次调用，第一次转换为commonjs代码，第二次转换为异步代码
+    // 异步代码使用异步函数包裹，并通过传入resolve、reject函数来回传模块导出
+    code = transformCode(
+      `(async (resolve, reject) => {\n${transformCode(
+        originalCode
+      )}\n\n})(void 0, void 0).then(() => resolve(module), reject)`,
+      // 第二次调用transformCode时使用异步转换插件，将require、__webpack_require__方法转换为异步调用
+      // 这里需要转为异步的原因是，webpack转换资源模块是异步的（通过loader链来转换）
+      getTransformPlugin(loaderContext, webpackModule.module)
+    )
+    codeCache.set(hash, code)
+  }
   // 创建模块上下文
   const vmContext = vm.createContext(webpackModule)
   // 运行虚拟机
