@@ -1,16 +1,12 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { getContextFromFile, selfContext } from './selfContext'
-import { containFile, isStylesheet } from './utils'
+import { containFile, escapeRegExpChar, isStylesheet } from './utils'
 
 type Module = NodeJS.Module
 type LoaderContext = import('webpack').loader.LoaderContext
 
 const matchModuleImport = /^~(?:[^/]+|[^/]+\/|@[^/]+[/][^/]+|@[^/]+\/?|@[^/]+[/][^/]+\/)$/
-
-export function escapeRegExpCharacters(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '\\x2d')
-}
 
 export async function resolveStyle(
   resolver: LoaderContext['resolve'],
@@ -52,7 +48,7 @@ export function getModuleFromCache(name: string) {
     }
   }
   if (!matcher) {
-    const regx = new RegExp(String.raw`/node_modules/${escapeRegExpCharacters(name)}/`, 'i')
+    const regx = new RegExp(String.raw`/node_modules/${escapeRegExpChar(name)}/`, 'i')
     matcher = (id: string) => regx.test(id.replace(/\\/g, '/'))
   }
   const modules = new Map<string, Module>()
@@ -123,6 +119,7 @@ export function resolveModule(name: string, paths?: string[]) {
     // 因为 webpack 在当前模块中是个 peerDependency
     // 如果从当前模块中加载依赖了 webpack 的模块，可能会出现加载不到 webpack 的情况
     // 比如使用 link 命令创建当前模块的符号链接到当前工作目录时
+    // 一般在开发调试阶段才会进入到这里
     const webpack = path.join(selfContext, 'node_modules/webpack')
     if (!fs.existsSync(webpack)) {
       const target = path.dirname(resolveModulePath('webpack/package.json'))

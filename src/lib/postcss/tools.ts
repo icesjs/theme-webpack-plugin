@@ -1,5 +1,5 @@
 import { getHashDigest } from 'loader-utils'
-import { AtRule, Declaration, Node, Plugin, Root, Rule, Syntax } from 'postcss'
+import { AtRule, ChildNode, Declaration, Node, Plugin, Root, Rule, Syntax } from 'postcss'
 import valueParser, {
   FunctionNode as FunctionValueNode,
   Node as ValueNode,
@@ -7,6 +7,7 @@ import valueParser, {
 import { isColorValue } from '../colors'
 
 export const pluginName = 'postcss-extract-theme-vars'
+export const preservedAnimationIdentifier = /^(?:None|none|initial|inherit|linear|ease|ease-in|ease-out|ease-in-out|infinite|normal|reverse|alternate|alternate-reverse|running|paused|forwards|backwards|both)$/
 
 export interface ThemeVarsMessage {
   plugin: typeof pluginName // 当前插件的名称
@@ -213,17 +214,21 @@ export function getTopScopeVariables(
   return normalize ? normalizeVarValue(variables, regExps) : variables
 }
 
-// 判断是不是顶层的:root规则
+// 判断是不是顶层的纯粹:root规则
 export function isTopRootRule(node: Node): node is Rule {
   if (node?.parent?.type === 'root' && node.type === 'rule') {
     const { selectors, selector } = node as Rule
-    const isRoot = (selector: string) => /^(?:html|:root)$/i.test(selector)
     if (Array.isArray(selectors)) {
-      return selectors.some(isRoot)
+      return selectors.some(isRootRuleSelector)
     }
-    return isRoot(selector)
+    return isRootRuleSelector(selector)
   }
   return false
+}
+
+// 判断是不是纯粹的:root规则选择器
+export function isRootRuleSelector(selector: string) {
+  return /^(?:html|:root)$/i.test(selector)
 }
 
 // 选择器是否能够选择中html元素
@@ -358,6 +363,90 @@ export function setIndentedRawBefore(node: Node | undefined, indentLength = 2) {
     raws.before = before.replace(/[\u0020]/g, '') + indent
   }
   return node
+}
+
+// 获取主题作用域处理器
+export function getThemeScopeProcessor(scope: string, themeAttrName: string) {
+  const keyframes = new Map<string, string>()
+  return (root: Root) => {
+    // 处理属性声明
+    root.each((node) => processThemeScope(node, scope, themeAttrName, keyframes))
+    if (!keyframes.size) {
+      return
+    }
+    // keyframes 名称替换
+    root.walkDecls(/^(?:-\w+-)?animation(?:-name)?$/i, (decl) => {
+      const parsed = valueParser(decl.value)
+      let updated = false
+      // 这里只处理一级子节点
+      for (const node of parsed.nodes) {
+        if (node.type !== 'word' && node.type !== 'string') {
+          continue
+        }
+        const { value } = node
+        if (!keyframes.has(value) || /^\.?\d/.test(value)) {
+          continue
+        }
+        const scopedValue = keyframes.get(value)!
+        if (node.type === 'word') {
+          if (isPreservedAnimationIdentifier(value)) {
+            continue
+          }
+          node.value = scopedValue
+        } else {
+          node.value = scopedValue
+        }
+        updated = true
+      }
+      if (updated) {
+        decl.value = valueParser.stringify(parsed.nodes)
+      }
+    })
+  }
+}
+
+// 为属性声明添加主题作用域
+function processThemeScope(
+  node: ChildNode,
+  scope: string,
+  themeAttrName: string,
+  keyframes: Map<string, string>
+) {
+  const scopeAttr = `[${themeAttrName}=${JSON.stringify(scope)}]`
+  if (node.type === 'rule') {
+    const { selectors = [] } = node
+    node.selectors = selectors.map((selector) =>
+      queryRootElement(selector)
+        ? selector.replace(/^(?:html|:root)/i, (s) => `${s}${scopeAttr}`)
+        : `:root${scopeAttr} ${selector}`
+    )
+  } else if (node.type === 'atrule') {
+    const { name } = node
+    // @media、@supports、@keyframes
+    // @document 这个还是个草案
+    // @page 这个不好处理，也不常用，而且打印相关的东西不要放主题里面去
+    // @font-face 这个要处理？比较麻烦
+    if (name === 'media' || name === 'supports' || name === 'document') {
+      // 递归处理子节点
+      node.each((child) => processThemeScope(child, scope, themeAttrName, keyframes))
+    } else if (/-?keyframes$/i.test(name)) {
+      // 先保存动画关键帧的名称，后面再处理属性值中的引用
+      let { params } = node
+      let checkIdentifier = true
+      if (/^(['"])(.+?)\1$/.test(params)) {
+        params = RegExp.$2
+        checkIdentifier = false
+      }
+      if (!checkIdentifier || !isPreservedAnimationIdentifier(params)) {
+        keyframes.set(params, (node.params = `${params}-${scope}`))
+      }
+    }
+  }
+}
+
+// 判断是不是css动画保留的一些关键字
+function isPreservedAnimationIdentifier(value: string) {
+  return preservedAnimationIdentifier.test(value)
 }
 
 // 获取引用类型变量

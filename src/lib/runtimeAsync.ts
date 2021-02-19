@@ -1,5 +1,5 @@
 /***
- * 浏览器端运行时代码。
+ * 抽取主题模式下的主题切换异步运行时。
  * 使用es5。可以使用ts类型标注。
  */
 type Theme = {
@@ -11,7 +11,7 @@ type Theme = {
 
 var hasOwnProperty = Object.prototype.hasOwnProperty
 var themeStorage = {} as { [name: string]: Theme }
-var currentLink: HTMLLinkElement | null = null
+var linkElement: HTMLLinkElement | null = null
 var abort: Function | null = null
 var deactivate: Function | null = null
 var defaultThemeName = ''
@@ -34,8 +34,8 @@ function createLink(loadHandler: (event: any) => Error | null) {
     if (loadHandler(event)) {
       removeLink(link)
     } else {
-      removeLink(currentLink)
-      currentLink = link
+      removeLink(linkElement)
+      linkElement = link
     }
   }
   return link
@@ -87,7 +87,7 @@ function loadTheme(name: string, href: string) {
       abort = null
     }
     if (!href) {
-      removeLink(currentLink)
+      removeLink(linkElement)
       return resolve()
     }
     var parent = getContainer()
@@ -118,10 +118,8 @@ function activateTheme(name: string, href: string) {
   })
 }
 
-function defineTheme(name: string, initPath: string) {
-  var href = initPath.trim()
+function defineTheme(name: string, href: string) {
   var activated = false
-
   var activate = function () {
     return activateTheme(name, href).then(function (deactivate: Function) {
       activated = true
@@ -138,13 +136,11 @@ function defineTheme(name: string, initPath: string) {
       name: { value: name },
       href: {
         set(path: any) {
-          if (typeof path !== 'string') {
-            return
-          }
-          var prev = href
-          href = path.trim()
-          if (activated && prev !== href) {
-            activate().then()
+          if (typeof path === 'string') {
+            var prev = href
+            if ((href = path.trim()) !== prev && activated) {
+              activate().then()
+            }
           }
         },
         get() {
@@ -168,12 +164,12 @@ function defineTheme(name: string, initPath: string) {
   ) as Theme
 }
 
-function registerThemes(themes: { name: string; path: string }[], defaultTheme: string) {
+function registerThemes(themes: { name: string; path: any }[], defaultTheme: string) {
   defaultThemeName = defaultTheme
   var definedThemes = themes.map(function (item) {
     var theme
     var name = item.name
-    var path = item.path
+    var path = typeof item.path === 'string' ? item.path.trim() : ''
     if (!hasOwnProperty.call(themeStorage, name)) {
       theme = themeStorage[name] = defineTheme(name, path)
     } else {

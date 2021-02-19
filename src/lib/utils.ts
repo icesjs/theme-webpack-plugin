@@ -1,8 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { parseQuery } from 'loader-utils'
-import type { Message } from 'postcss'
-import { Root } from 'postcss'
+import type { Message, Root } from 'postcss'
 
 const astSymbol = Symbol('ThemeLoaderAstMeta')
 
@@ -150,4 +149,9 @@ export function tryGetCodeIssuerFile(module: any) {
     }
   }
   return ''
+}
+
+// 转义正则元字符
+export function escapeRegExpChar(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '\\x2d')
 }

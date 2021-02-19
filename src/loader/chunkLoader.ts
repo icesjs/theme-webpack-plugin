@@ -2,8 +2,8 @@ import { stringifyRequest } from 'loader-utils'
 import { selfModuleName } from '../lib/selfContext'
 import { isFromModule } from '../lib/resolve'
 import { PluginLoader } from '../Plugin'
-import extractLoader from './extractLoader'
 import { ValidPluginOptions } from '../options'
+import extractLoader from './extractLoader'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
@@ -54,7 +54,7 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
   const { esModule, publicPath, outputPath, filename } = pluginOptions
   // 添加loader
   loaders.splice(
-    1, // 0号索引为当前theme-loader，我们添加新loader到当前loader的后面
+    1, // 0号索引为当前chunk-loader，我们添加新loader到当前loader的后面
     0,
     // 这里的添加顺序不能错
     {
@@ -82,7 +82,7 @@ function getThemeResource(loaderContext: LoaderContext) {
 }
 
 export const pitch: PluginLoader['pitch'] = function () {
-  const pluginOptions = themeLoader.getPluginOptions!()
+  const pluginOptions = chunkLoader.getPluginOptions!()
   const { loaders } = this
   if (loaders.length < 2) {
     const { esModule } = pluginOptions
@@ -104,11 +104,11 @@ export const pitch: PluginLoader['pitch'] = function () {
   }
 }
 
-const themeLoader: PluginLoader = function (source, map) {
-  // 因为对于当前请求，我们是两次进入theme-loader，所以在normal阶段我们需要返回模块内容
+const chunkLoader: PluginLoader = function (source, map) {
+  // 因为对于当前请求，我们是两次进入chunk-loader，所以在normal阶段我们需要返回模块内容
   this.callback(null, source, map)
 }
 
-themeLoader.filepath = __filename
-themeLoader.pitch = pitch
-export default themeLoader
+chunkLoader.filepath = __filename
+chunkLoader.pitch = pitch
+export default chunkLoader

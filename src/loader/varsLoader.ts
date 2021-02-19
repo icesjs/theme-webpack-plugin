@@ -23,9 +23,9 @@ import {
   defineThemeVariablesPlugin,
   defineTopScopeVarsPlugin,
   defineURLVarsPlugin,
-  makeThemeVarsDeclPlugin,
   makeTopScopeVarsDeclPlugin,
   preserveRawStylePlugin,
+  replaceWithThemeVarsPlugin,
   resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
@@ -35,6 +35,7 @@ export interface VarsLoaderOptions {
   onlyColor: boolean
   syntax: string
   token: string
+  themeAttrName?: string
 }
 
 interface LoaderData extends ThemeLoaderData {
@@ -135,6 +136,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
     ]).process(source, {
       syntax: syntaxPlugin,
       from: file,
+      to: file,
       map: false,
     })
 
@@ -146,7 +148,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
 }
 
 // 抽取变量并返回样式定义规则
-async function extractTopScopeVars(loaderContext: LoaderContext, source: string, filename: string) {
+async function makeThemeVarsFile(loaderContext: LoaderContext, source: string, filename: string) {
   const { syntaxPlugin, options } = loaderContext.data
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
@@ -158,6 +160,7 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
     .process(source, {
       syntax: syntaxPlugin,
       from: filename,
+      to: filename,
       map: false,
     })
     .then(({ messages }) => ({
@@ -174,6 +177,7 @@ async function extractTopScopeVars(loaderContext: LoaderContext, source: string,
     await postcss(plugins).process('', {
       syntax: syntaxPlugin,
       from: filename,
+      to: filename,
       map: false,
     })
   ).css
@@ -251,7 +255,7 @@ function getCommonPlugins(
 
       load: async (filename: string) =>
         mergeThemeFile && isThemeFile(filename, themeFiles)
-          ? extractTopScopeVars(loaderContext, await readFile(filename, fileSystem), filename)
+          ? makeThemeVarsFile(loaderContext, await readFile(filename, fileSystem), filename)
           : readFile(filename, fileSystem),
 
       ...restImportOptions,
@@ -308,7 +312,7 @@ function getPluginsForNormalStage(loaderContext: LoaderContext) {
   }
 
   plugins.push(
-    makeThemeVarsDeclPlugin({
+    replaceWithThemeVarsPlugin({
       syntax,
       onlyColor,
       isThemeFile,
@@ -391,6 +395,7 @@ export const pitch: PluginLoader['pitch'] = function () {
     const { messages } = await processor.process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
+      to: resourcePath,
       map: false,
     })
 
@@ -418,8 +423,6 @@ const varsLoader: PluginLoader = function (source, map, meta) {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      // 因为当前loader是最先执行的loader，且视情况仅对源码插入和替换了一些内容
-      // 所以映射文件这里不处理，交给余下loader去处理
       map: false,
     })
     .then(({ css, root, messages, processor }) =>

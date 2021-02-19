@@ -6,12 +6,12 @@ import {
   determineCanUseAsThemeVarsByValue,
   ExtendPluginOptions,
   ExtendType,
+  getThemeScopeProcessor,
   getTopScopeVariables,
   insertRawBefore,
   parseURLPaths,
   pluginFactory,
   PluginOptions,
-  queryRootElement,
   ThemeLoaderData,
   toVarsDict,
   VarsDictItem,
@@ -119,8 +119,8 @@ export function defineURLVarsPlugin(options: PluginOptions) {
   }))
 }
 
-// 创建主题属性声明规则，修改原样式文件
-export function makeThemeVarsDeclPlugin(
+// 使用主题变量替换变量引用，修改原样式文件
+export function replaceWithThemeVarsPlugin(
   options: ExtendPluginOptions<ExtendType<Required<ThemeLoaderData>, { isThemeFile: boolean }>>
 ) {
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
@@ -236,21 +236,10 @@ export function preserveRawStylePlugin(options: PluginOptions) {
 }
 
 // 为主题变量添加命名空间
-export function addThemeScopePlugin(options: ExtendPluginOptions<{ scope: string }>) {
-  return pluginFactory(options, ({ scope }) => ({
-    Once: async (root) => {
-      const scopeAttr = `[data-theme=${JSON.stringify(scope)}]`
-      for (const node of root.nodes) {
-        if (node.type === 'rule') {
-          const { selectors = [] } = node
-          node.selectors = selectors.map((selector) => {
-            if (queryRootElement(selector)) {
-              return selector.replace(/^(?:html|:root)/i, (s) => `${s}${scopeAttr}`)
-            }
-            return `:root${scopeAttr} ${selector}`
-          })
-        }
-      }
-    },
+export function addThemeScopePlugin(
+  options: ExtendPluginOptions<{ scope: string; themeAttrName: string }>
+) {
+  return pluginFactory(options, ({ scope, themeAttrName }) => ({
+    Once: async (root) => getThemeScopeProcessor(scope, themeAttrName)(root),
   }))
 }

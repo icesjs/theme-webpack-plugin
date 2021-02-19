@@ -129,6 +129,11 @@ export interface PluginOptions {
    */
   extract?: boolean
   /**
+   * 自定义文档根节点 <code>html</code> 元素上设置主题的属性名称。<code>extract</code> 配置项为 <code>true</code> 时有效。<br>
+   * 默认为 <code>data-theme</code> 。
+   */
+  themeAttrName?: string
+  /**
    * 自定义获取css内容的函数。 <code>extract</code> 配置项为 <code>true</code> 时有效。<br>
    * 一般情况下，css会被loader转换为js模块以便被webpack打包使用，
    * 如果需要单独以css文件形式发布css模块，则需要先将css内容从js模块里面分离出来，再以css chunk资源文件形式发布。<br>
@@ -227,6 +232,13 @@ const schema: Schema = {
       default: true,
       type: 'boolean',
     },
+    themeAttrName: {
+      description:
+        'The attribute name for root element (html) to set the theme name (default to "data-theme").',
+      default: 'data-theme',
+      type: 'string',
+      minLength: 1,
+    },
     cssModules: {
       description:
         'If set true, the css modules will be used always. "auto" means ".module" suffix of file will enabled (default to "auto").',
@@ -263,6 +275,7 @@ export function getOptions(opts?: PluginOptions) {
       outputPath: 'themes',
       esModule: true,
       extract: true,
+      themeAttrName: 'data-theme',
       cssModules: 'auto',
     },
     opts

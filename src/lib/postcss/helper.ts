@@ -7,8 +7,9 @@ import {
   determineCanExtractToRootDeclByIdent,
   fixScssCustomizePropertyBug,
   insertRawBefore,
-  isTopRootRule,
+  isRootRuleSelector,
   isTopRootDecl,
+  isTopRootRule,
   isURLFunctionNode,
   makeVariableIdent,
   pluginName,
@@ -388,14 +389,20 @@ function mergeTopRootDecls(
   helper: Helpers
 ) {
   // 合并:root节点
-  for (const node of helper.result.root.nodes) {
+  helper.result.root.each((node) => {
     if (isTopRootRule(node)) {
-      for (const child of [...node.nodes]) {
-        decls.push(child as Declaration)
+      const onlyRootSelector = !node.selectors.some((sel) => !isRootRuleSelector(sel))
+      node.each((child) => {
+        const decl = onlyRootSelector ? child : child.clone()
+        decls.push(decl as Declaration)
+      })
+      if (onlyRootSelector) {
+        node.remove()
+      } else {
+        node.selectors = node.selectors.filter((sel) => !isRootRuleSelector(sel))
       }
-      node.remove()
     }
-  }
+  })
   return createRootRule(decls, syntax, regExps, helper)
 }
 
