@@ -1,13 +1,14 @@
 import postcss from 'postcss'
 import { getOptions } from 'loader-utils'
 import { addThemeScopePlugin } from '../lib/postcss/plugins'
-import { PluginLoader } from '../Plugin'
+import { PluginLoader } from '../ThemePlugin'
 import { VarsLoaderOptions } from './varsLoader'
 import {
   getASTFromMeta,
   getFileThemeName,
   getQueryObject,
-  getValidSyntax,
+  getSyntaxPlugin,
+  getSupportedSyntax,
   isStylesheet,
 } from '../lib/utils'
 
@@ -17,14 +18,14 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
   const { syntax: rawSyntax, token, onlyColor, themeAttrName = 'data-theme' } = (getOptions(
     this
   ) as unknown) as VarsLoaderOptions
-  const syntax = getValidSyntax(rawSyntax)
+  const syntax = getSupportedSyntax(rawSyntax)
 
   if (queryToken !== token || !isStylesheet(resourcePath)) {
     this.callback(null, source, map, meta)
     return
   }
 
-  const syntaxPlugin = require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`)
+  const syntaxPlugin = getSyntaxPlugin(syntax)
   const scope = getFileThemeName(resourcePath)
   const { root } = getASTFromMeta(meta)
 

@@ -1,7 +1,7 @@
 import { stringifyRequest } from 'loader-utils'
 import { selfModuleName } from '../lib/selfContext'
 import { isFromModule } from '../lib/resolve'
-import { PluginLoader } from '../Plugin'
+import { PluginLoader } from '../ThemePlugin'
 import { ValidPluginOptions } from '../options'
 import extractLoader from './extractLoader'
 

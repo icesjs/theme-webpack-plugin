@@ -5,17 +5,18 @@ import postcss from 'postcss'
 import type { AtImportOptions } from 'postcss-import'
 import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
-import { LoaderContext as WebpackLoaderContext, PluginLoader } from '../Plugin'
-import { ThemeLoaderData, ThemeVarsMessage } from '../lib/postcss/tools'
-import { getVarsMessages } from '../lib/postcss/helper'
+import { LoaderContext as WebpackLoaderContext, PluginLoader } from '../ThemePlugin'
+import { getVarsMessages, PluginMessages } from '../lib/postcss/tools'
 import { resolveStyle } from '../lib/resolve'
 import {
   createASTMeta,
   getQueryObject,
-  getValidSyntax,
+  getSupportedSyntax,
+  getSyntaxPlugin,
   isSamePath,
   isStylesheet,
   readFile,
+  SupportedSyntax,
   tryGetCodeIssuerFile,
 } from '../lib/utils'
 import {
@@ -29,16 +30,17 @@ import {
   resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
+import { ThemeVarsMessage } from '../lib/postcss/variables'
 
 export interface VarsLoaderOptions {
+  syntax: SupportedSyntax
   cssModules: boolean | { [p: string]: any }
   onlyColor: boolean
-  syntax: string
   token: string
   themeAttrName?: string
 }
 
-interface LoaderData extends ThemeLoaderData {
+interface LoaderData extends PluginMessages {
   readonly options: VarsLoaderOptions
   readonly themeFiles: string[]
   readonly isStylesheet: boolean
@@ -94,11 +96,6 @@ function getURLVarsMessages(messages: Message[]) {
     varsMap.set(vars.ident, vars)
   }
   return [...varsMap.values()]
-}
-
-// 获取语法插件模块
-function getSyntaxPlugin(syntax: string) {
-  return require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`) as Syntax
 }
 
 // 设置变量数据，这些数据在theme-loader的normal阶段使用
@@ -229,15 +226,29 @@ function getCommonPlugins(
   mergeThemeFile: boolean,
   allowCssModules: boolean,
   importOptions: AtImportOptions = {}
-) {
+): AcceptedPlugin[] {
   const { rootContext, data } = loaderContext
   const { options, fileSystem, syntaxPlugin, themeFiles } = data
-  const { syntax, cssModules, onlyColor } = options
+  const { syntax, onlyColor } = options
   const { plugins: atImportPlugins = [], ...restImportOptions } = importOptions
   const { plugin: resolveImportPlugin, filter, resolve } = getResolveImportPlugin(loaderContext)
   const pluginOptions = { syntax, syntaxPlugin, onlyColor }
 
-  const plugins = [
+  /*  if (allowCssModules && cssModules) {
+    plugins.push(
+      require('postcss-modules')(
+        Object.assign(
+          {
+            getJSON: () => {},
+            exportGlobals: false,
+          },
+          cssModules
+        )
+      )
+    )
+  }*/
+
+  return [
     resolveImportPlugin,
     preserveRawStylePlugin(pluginOptions),
     atImport({
@@ -262,28 +273,12 @@ function getCommonPlugins(
       //
     } as AtImportOptions),
   ] as AcceptedPlugin[]
-
-  if (allowCssModules && cssModules) {
-    plugins.push(
-      require('postcss-modules')(
-        Object.assign(
-          {
-            getJSON: () => {},
-            exportGlobals: false,
-          },
-          cssModules
-        )
-      )
-    )
-  }
-
-  return plugins
 }
 
 // 获取配置对象
 function getLoaderOptions(loaderContext: WebpackLoaderContext) {
   const { ...options } = getOptions(loaderContext) as any
-  options.syntax = getValidSyntax(options.syntax)
+  options.syntax = getSupportedSyntax(options.syntax)
   return options as VarsLoaderOptions
 }
 
@@ -368,7 +363,7 @@ function defineLoaderData(context: WebpackLoaderContext) {
       value: options,
     },
     uriMaps: {
-      value: new Map(),
+      value: new Map([[resourcePath, new Map()]]),
     },
   }) as LoaderData
 }
@@ -420,9 +415,9 @@ export const pitch: PluginLoader['pitch'] = function () {
 const varsLoader: PluginLoader = function (source, map, meta) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
-  const { isStylesheet, syntaxPlugin } = data
+  const { isStylesheet, isThemeFile, syntaxPlugin } = data
 
-  if (!isStylesheet) {
+  if (!isStylesheet || (!isThemeFile && !data.uriMaps.get(resourcePath)!.size)) {
     this.callback(null, source, map, meta)
     return
   }

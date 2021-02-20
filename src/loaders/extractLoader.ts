@@ -2,7 +2,7 @@ import * as path from 'path'
 import { format } from 'util'
 import { interpolateName } from 'loader-utils'
 import { ValidPluginOptions } from '../options'
-import { LoaderContext, PluginLoader } from '../Plugin'
+import { LoaderContext, PluginLoader } from '../ThemePlugin'
 import { hasOwnProperty, isEsModuleExport, normalizePublicPath } from '../lib/utils'
 import exec from '../lib/vm'
 

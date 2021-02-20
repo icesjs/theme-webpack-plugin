@@ -1,59 +1,27 @@
-import { getHashDigest } from 'loader-utils'
-import { AtRule, ChildNode, Declaration, Node, Plugin, Root, Rule, Syntax } from 'postcss'
-import valueParser, {
-  FunctionNode as FunctionValueNode,
-  Node as ValueNode,
-} from 'postcss-value-parser'
-import { isColorValue } from '../colors'
+import { Helpers, Message, Node, Plugin, Root, Syntax } from 'postcss'
+import valueParser, { Node as ValueNode } from 'postcss-value-parser'
+import { isURLFunctionNode } from './assert'
+import {
+  getReferenceVars,
+  getVarPropertyRegExps,
+  makeVariableIdent,
+  ThemePropertyMatcher,
+  ThemeVarsMessage,
+  toVarsDict,
+  URLVarsDictItem,
+  VariablesContainer,
+  VarsDict,
+} from './variables'
 
 export const pluginName = 'postcss-extract-theme-vars'
-export const preservedAnimationIdentifier = /^(?:None|none|initial|inherit|linear|ease|ease-in|ease-out|ease-in-out|infinite|normal|reverse|alternate|alternate-reverse|running|paused|forwards|backwards|both)$/
 
-export interface ThemeVarsMessage {
-  plugin: typeof pluginName // 当前插件的名称
-  type:
-    | 'theme-vars' // 当前解析上下文中的主题变量
-    | 'theme-root-vars' // 当前解析上下文中的:root规则自定义属性变量
-    | 'theme-context-vars' // 当前文件中声明的本地变量
-    | 'theme-url-vars' // 导入文件中的url地址变量
-    | 'theme-prop-vars' // 从属性值中分离出的主题变量引用
-
-  ident: string // 属性名hash标识名
-  originalName: string // 属性原始名称
-  value: string // 变量解析后的值
-  originalValue: string // 属性原始值
-  isRootDecl: boolean // 是否是:root{}下的属性声明
-  parsed: boolean // 是否已处理值解析
-  dependencies?: VarsDependencies // 依赖的变量
-  from?: string // 来源文件路径
-  data?: any // 额外的数据
-}
-
-export type ThemePropertyMatcher = readonly [RegExp, RegExp, RegExp]
-
-export interface VarsDictItem extends Omit<ThemeVarsMessage, 'type' | 'plugin'> {
-  dependencies: VarsDependencies
-}
-
-export interface URLVarsDictItem extends VarsDictItem {
-  data: Set<string>
-  from: string
-}
-
-export type RefVarsDictItem = VarsDictItem
-
-// ident => VarsDictItem
-export type VarsDict = Map<string, VarsDictItem>
-export type URLVarsDict = Map<string, URLVarsDictItem>
-export type RefVarsDict = Map<string, RefVarsDictItem>
-
-export interface ThemeLoaderData {
+export interface PluginMessages {
   urlMessages?: ThemeVarsMessage[]
   contextMessages?: ThemeVarsMessage[]
   variablesMessages?: ThemeVarsMessage[]
 }
 
-export interface PluginOptions extends ThemeLoaderData {
+export interface PluginOptions extends PluginMessages {
   syntax: string
   syntaxPlugin: Syntax
   onlyColor: boolean
@@ -63,33 +31,56 @@ export type ExtendPluginOptions<T> = ExtendType<PluginOptions, T>
 
 export type ExtendType<S, T> = S & T
 
-// ident =>  propName
-export type VarsDependencies = Map<string, string>
-
-type VariablesDecl = {
-  ident: string
-  value: string
-  originalName: string
-  originalValue: string
-  isRootDecl: boolean
-  dependencies: VarsDependencies
-  decl: Declaration
-  from: string | undefined
-  parsed: boolean
-}
-
-// 这里的键是属性名（非ID）
-type VariablesContext = Map<string, VariablesDecl>
-
-export type VariablesContainer = {
-  context: VarsDict
-  variables: VarsDict
-  urlVars: URLVarsDict
-  references: RefVarsDict
-}
-
 type PluginContext<T> = ExtendType<T, { regExps: ThemePropertyMatcher; vars: VariablesContainer }>
 type PluginCreator<T> = (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
+
+interface VarsMessageOptions extends Omit<ThemeVarsMessage, 'ident' | 'type' | 'plugin'> {
+  helper: Helpers
+  ident?: string
+  type?: ThemeVarsMessage['type']
+}
+
+// 设置变量消息
+export function setVarsMessage(options: VarsMessageOptions) {
+  const {
+    helper,
+    originalName,
+    type = 'theme-vars',
+    ident = makeVariableIdent(originalName),
+    ...rest
+  } = options
+  const msg = { ...rest, originalName, type, ident, plugin: pluginName } as ThemeVarsMessage
+  delete (msg as any).decl
+  const messages = helper.result.messages as ThemeVarsMessage[]
+  const index = messages.findIndex(
+    (msg) => msg.ident === ident && msg.type === type && msg.plugin === pluginName
+  )
+  if (index !== -1) {
+    messages.splice(index, 1, msg)
+  } else {
+    messages.push(msg)
+  }
+  return msg
+}
+
+// 获取变量数据
+export function getVarsMessages(
+  messages: Message[],
+  type: ThemeVarsMessage['type'] | ((msg: ThemeVarsMessage) => boolean) = 'theme-vars'
+) {
+  return messages.filter((msg) => {
+    if (msg.plugin !== pluginName) {
+      return false
+    }
+    if (typeof type === 'string') {
+      return msg.type === type
+    }
+    if (typeof type === 'function') {
+      return type(msg as ThemeVarsMessage)
+    }
+    return false
+  }) as ThemeVarsMessage[]
+}
 
 // 辅助创建插件
 export function pluginFactory<T extends PluginOptions>(options: T, createPlugin: PluginCreator<T>) {
@@ -112,136 +103,6 @@ export function pluginFactory<T extends PluginOptions>(options: T, createPlugin:
   } as Plugin
 }
 
-// 根据属性名称创建变量标识名
-export function makeVariableIdent(name: string) {
-  let ident = `--${name.replace(/[^-\w]/g, '') || 'var'}`
-  ident += `-${getHashDigest(Buffer.from(name), 'md4', 'hex', 4)}`
-  if (process.env.NODE_ENV !== 'development') {
-    ident = `--${getHashDigest(Buffer.from(ident), 'md4', 'hex', 6)}`
-  }
-  return ident
-}
-
-// 判定一个值节点是否是主题相关的变量
-export function determineCanExtractToRootDeclByIdent(
-  ident: string,
-  onlyColor: boolean,
-  context: VarsDict,
-  variables: VarsDict
-) {
-  if (context.has(ident) || !variables.has(ident)) {
-    // 当前文件包含这个变量声明，则认为是本地变量，不作主题变量处理
-    // 如果不是本地变量，也不是全局变量，则是个无效的变量引用
-    return false
-  }
-  if (onlyColor) {
-    // 这里的value是解析后的值
-    const { value } = variables.get(ident)!
-    // 节点是值解析的word类型，直接判断其值即可
-    if (!value || !isColorValue(value)) {
-      return false
-    }
-  }
-  return true
-}
-
-// 根据变量的值来判定其是否能够被当成主题变量
-export function determineCanUseAsThemeVarsByValue(value: string, onlyColor: boolean) {
-  if (!value) {
-    return false
-  }
-  if (onlyColor && !isColorValue(value)) {
-    const parsed = valueParser(value)
-    let hasColor = false
-    // 可能是多值组合，比如：1px solid red
-    // 对值进行解析处理，并逐一判定每个值
-    parsed.walk((node) => {
-      if (hasColor || node.type !== 'word' || (hasColor = isColorValue(node.value))) {
-        // 返回false跳出迭代
-        return false
-      }
-    }, true)
-
-    if (!hasColor) {
-      return false
-    }
-  }
-  // 如果不仅仅是抽取颜色相关的变量值
-  // 则所有的变量都当成主题变量对待
-  return true
-}
-
-// 获取顶层变量
-export function getTopScopeVariables(
-  root: Root,
-  regExps: ThemePropertyMatcher,
-  filter?: null | ((decl: Declaration, isRootDecl: boolean) => boolean),
-  normalize = true
-) {
-  const variables: VariablesContext = new Map()
-  if (typeof filter !== 'function') {
-    filter = () => true
-  }
-  for (const node of root.nodes) {
-    if (node.type === 'decl' || node.type === 'atrule') {
-      let decl
-      if (node.type === 'atrule' && (node as any).variable) {
-        // @var: value
-        const value = (node as any).value || (node as AtRule).params || ''
-        decl = {
-          type: 'decl',
-          prop: `@${node.name}`,
-          value,
-          source: node.source,
-        }
-      } else {
-        // $var: value
-        decl = node
-      }
-      const varNode = decl as Declaration
-      if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
-        addTopScopeVariable(variables, varNode, root, false)
-      }
-    } else if (isTopRootRule(node)) {
-      // :root {--prop: value}
-      for (const rNode of node.nodes) {
-        if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
-          addTopScopeVariable(variables, rNode, root, true)
-        }
-      }
-    }
-  }
-  return normalize ? normalizeVarValue(variables, regExps) : variables
-}
-
-// 判断是不是顶层的纯粹:root规则
-export function isTopRootRule(node: Node): node is Rule {
-  if (node?.parent?.type === 'root' && node.type === 'rule') {
-    const { selectors, selector } = node as Rule
-    if (Array.isArray(selectors)) {
-      return selectors.some(isRootRuleSelector)
-    }
-    return isRootRuleSelector(selector)
-  }
-  return false
-}
-
-// 判断是不是纯粹的:root规则选择器
-export function isRootRuleSelector(selector: string) {
-  return /^(?:html|:root)$/i.test(selector)
-}
-
-// 选择器是否能够选择中html元素
-export function queryRootElement(selector: string) {
-  return /^(?:html|:root)(?=\[[^\]]*]|[:,.>~+\u0020]|$)/i.test(selector)
-}
-
-// 判断是不是顶层的属性声明
-export function isTopRootDecl(decl: Declaration) {
-  const { parent } = decl
-  return parent?.type === 'rule' && isTopRootRule(parent)
-}
-
 // 修复scss对于:root节点自定义属性，不能正常使用变量引用的bug
 export function fixScssCustomizePropertyBug(
   value: string,
@@ -262,35 +123,6 @@ export function fixScssCustomizePropertyBug(
     }
   })
   return changed ? valueParser.stringify(parsed.nodes) : value
-}
-
-// 将变量消息转换为变量字典
-export function toVarsDict<T extends VarsDictItem>(
-  messages: ThemeVarsMessage[] | null | undefined
-): Map<string, T> {
-  const vars = new Map<string, T>()
-  if (!messages) {
-    return vars
-  }
-  for (const { ident, type, plugin, dependencies = new Map(), ...rest } of messages) {
-    vars.set(ident, {
-      ...rest,
-      ident,
-      dependencies,
-    } as T)
-  }
-  return vars
-}
-
-// 判断是否是一个URL函数调用节点
-export function isURLFunctionNode(
-  node: ValueNode,
-  includeImageSet: boolean
-): node is FunctionValueNode {
-  if (node.type !== 'function') {
-    return false
-  }
-  return node.value === 'url' || (includeImageSet && /(?:-webkit-)?image-set/.test(node.value))
 }
 
 // 解析属性声明值里的URL路径
@@ -365,206 +197,31 @@ export function setIndentedRawBefore(node: Node | undefined, indentLength = 2) {
   return node
 }
 
-// 获取主题作用域处理器
-export function getThemeScopeProcessor(scope: string, themeAttrName: string) {
-  const keyframes = new Map<string, string>()
-  return (root: Root) => {
-    // 处理属性声明
-    root.each((node) => processThemeScope(node, scope, themeAttrName, keyframes))
-    if (!keyframes.size) {
-      return
-    }
-    // keyframes 名称替换
-    root.walkDecls(/^(?:-\w+-)?animation(?:-name)?$/i, (decl) => {
-      const parsed = valueParser(decl.value)
-      let updated = false
-      // 这里只处理一级子节点
-      for (const node of parsed.nodes) {
-        if (node.type !== 'word' && node.type !== 'string') {
-          continue
-        }
-        const { value } = node
-        if (!keyframes.has(value) || /^\.?\d/.test(value)) {
-          continue
-        }
-        const scopedValue = keyframes.get(value)!
-        if (node.type === 'word') {
-          if (isPreservedAnimationIdentifier(value)) {
-            continue
-          }
-          node.value = scopedValue
-        } else {
-          node.value = scopedValue
-        }
-        updated = true
-      }
-      if (updated) {
-        decl.value = valueParser.stringify(parsed.nodes)
-      }
-    })
-  }
+// 获取当前处理的样式文件路径
+export function getSourceFile(helper: Helpers, root: Root = helper.result.root) {
+  return root.source?.input.file || helper.result.opts.from || ''
 }
 
-// 为属性声明添加主题作用域
-function processThemeScope(
-  node: ChildNode,
-  scope: string,
-  themeAttrName: string,
-  keyframes: Map<string, string>
-) {
-  const scopeAttr = `[${themeAttrName}=${JSON.stringify(scope)}]`
-  if (node.type === 'rule') {
-    const { selectors = [] } = node
-    node.selectors = selectors.map((selector) =>
-      queryRootElement(selector)
-        ? selector.replace(/^(?:html|:root)/i, (s) => `${s}${scopeAttr}`)
-        : `:root${scopeAttr} ${selector}`
-    )
-  } else if (node.type === 'atrule') {
-    const { name } = node
-    // @media、@supports、@keyframes
-    // @document 这个还是个草案
-    // @page 这个不好处理，也不常用，而且打印相关的东西不要放主题里面去
-    // @font-face 这个要处理？比较麻烦
-    if (name === 'media' || name === 'supports' || name === 'document') {
-      // 递归处理子节点
-      node.each((child) => processThemeScope(child, scope, themeAttrName, keyframes))
-    } else if (/-?keyframes$/i.test(name)) {
-      // 先保存动画关键帧的名称，后面再处理属性值中的引用
-      let { params } = node
-      let checkIdentifier = true
-      if (/^(['"])(.+?)\1$/.test(params)) {
-        params = RegExp.$2
-        checkIdentifier = false
-      }
-      if (!checkIdentifier || !isPreservedAnimationIdentifier(params)) {
-        keyframes.set(params, (node.params = `${params}-${scope}`))
-      }
+// 获取属性的所有依赖变量
+export function getAllDependencies(ident: string, variables: VarsDict, context: VarsDict) {
+  const varDeps = new Set<string>()
+  let property = variables.get(ident) || context.get(ident)
+  if (!property) {
+    return varDeps
+  }
+  varDeps.add(ident)
+  const { dependencies } = property
+  if (!dependencies?.size) {
+    return varDeps
+  }
+  for (const id of dependencies.keys()) {
+    if (varDeps.has(id)) {
+      continue
+    }
+    varDeps.add(id)
+    for (const dep of getAllDependencies(id, variables, context)) {
+      varDeps.add(dep)
     }
   }
-}
-
-// 判断是不是css动画保留的一些关键字
-function isPreservedAnimationIdentifier(value: string) {
-  return preservedAnimationIdentifier.test(value)
-}
-
-// 获取引用类型变量
-function getReferenceVars(contextDict: VarsDict, variablesDict: VarsDict) {
-  const refs = new Map<string, RefVarsDictItem>()
-  for (const { ident, dependencies, ...rest } of contextDict.values()) {
-    // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
-    if (
-      dependencies?.size &&
-      ![...dependencies.keys()].some((ident) => !variablesDict.has(ident))
-    ) {
-      refs.set(ident, { ident, dependencies, ...rest })
-    }
-  }
-  return refs
-}
-
-// 添加顶层作用域变量到变量上下文
-function addTopScopeVariable(
-  variables: VariablesContext,
-  varDecl: Declaration,
-  root: Root,
-  isRootDecl: boolean
-) {
-  variables.set(varDecl.prop, {
-    ident: makeVariableIdent(varDecl.prop),
-    dependencies: new Map<string, string>(),
-    originalName: varDecl.prop,
-    value: varDecl.value,
-    originalValue: varDecl.value,
-    isRootDecl,
-    decl: varDecl,
-    from: varDecl.source?.input.file || root.source?.input.file,
-    parsed: false,
-  } as VariablesDecl)
-}
-
-// 获取变量值
-function getVarsValue(
-  varName: string,
-  varsDependency: VarsDependencies,
-  variables: VariablesContext,
-  regExps: ThemePropertyMatcher
-) {
-  if (!variables.has(varName)) {
-    // 引用的变量不存在
-    return ''
-  }
-
-  const { value } = variables.get(varName)!
-  if (
-    !value ||
-    value === varName ||
-    (regExps[0].test(value) && varsDependency.has(makeVariableIdent(value)))
-  ) {
-    // 空值，或则循环引用自身
-    return ''
-  }
-
-  // 继续解析变量值（可能包含另外的变量）
-  return parseValue(value, varsDependency, variables, regExps)
-}
-
-// 解析属性值
-function parseValue(
-  value: string,
-  varsDependencies: VarsDependencies,
-  variables: VariablesContext,
-  regExps: ThemePropertyMatcher
-) {
-  if (!value) {
-    return ''
-  }
-
-  let containVars = false
-  const parsed = valueParser(value)
-  parsed.walk((node) => {
-    if (node.type === 'word' && regExps[0].test(node.value)) {
-      // 当前节点是一个变量名引用
-      containVars = true
-      const varName = node.value
-      varsDependencies.set(makeVariableIdent(varName), varName)
-      node.value = getVarsValue(varName, varsDependencies, variables, regExps)
-    }
-  })
-
-  return containVars ? valueParser.stringify(parsed.nodes) : value
-}
-
-// 格式化全局变量，解除变量引用关系
-function normalizeVarValue(variables: VariablesContext, regExps: ThemePropertyMatcher) {
-  for (const [prop, vars] of variables) {
-    let { ident, value, originalName, dependencies } = vars
-    dependencies.set(ident, originalName)
-    value = value ? value.replace(/!(?!important).*/, '') : ''
-    value = parseValue(value, dependencies, variables, regExps)
-    if (!value) {
-      variables.delete(prop)
-    } else {
-      dependencies.delete(ident)
-      vars.value = value
-      vars.parsed = true
-    }
-  }
-  return variables
-}
-
-// 获取变量属性名称的正则表达式（@xxx、$xxx、--xxx）
-function getVarPropertyRegExps(syntax: string) {
-  const cssProp = String.raw`--[-\w]+`
-  const regStr = [cssProp]
-  if (/^s[ac]ss$/.test(syntax)) {
-    regStr.push(String.raw`\$(?![\$\d])[-\$\w]+`)
-  } else if (/^less$/.test(syntax)) {
-    regStr.push(String.raw`@{1,2}(?!@)[-\w]+`)
-  }
-  const cssRegx = new RegExp(String.raw`^${cssProp}$`)
-  const syntaxRegx = regStr[1] ? new RegExp(String.raw`^${regStr[1]}$`) : cssRegx
-  const allRegx = regStr[1] ? new RegExp(String.raw`^(?:${regStr.join('|')})$`) : cssRegx
-  return [allRegx, syntaxRegx, cssRegx] as ThemePropertyMatcher
+  return varDeps
 }

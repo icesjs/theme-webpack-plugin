@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { parseQuery } from 'loader-utils'
-import type { Message, Root } from 'postcss'
+import type { Message, Root, Syntax } from 'postcss'
 
 const astSymbol = Symbol('ThemeLoaderAstMeta')
 
@@ -12,6 +12,8 @@ type PostcssASTMeta = {
   version?: string
 }
 
+export type SupportedSyntax = 'scss' | 'sass' | 'less' | 'css'
+
 // 获取一个token，非作为ID，仅用于标记theme文件请求
 export function getToken(length: number = 16) {
   return Buffer.from(Buffer.from(`${Date.now()}`).toString('base64'))
@@ -20,14 +22,14 @@ export function getToken(length: number = 16) {
 }
 
 // 从元数据中获取postcss的抽象语法树
-export function getASTFromMeta(meta: any) {
+export function getASTFromMeta(meta: any): PostcssASTMeta {
   let astMeta
   if (hasOwnProperty(meta, astSymbol)) {
     astMeta = Reflect.get(meta, astSymbol)
   } else {
     astMeta = {}
   }
-  return { ...astMeta, type: 'postcss' } as PostcssASTMeta
+  return { ...astMeta, type: 'postcss' }
 }
 
 // 创建共享元数据
@@ -75,21 +77,21 @@ export function getFileThemeName(file: string) {
 
 // 获取有效的语法名称
 // 即当前支持的解析语法
-export function getValidSyntax(syntax: any) {
+export function getSupportedSyntax(syntax: any): SupportedSyntax {
   syntax = typeof syntax === 'string' ? syntax.toLowerCase() : ''
   if (!isStylesheet(`.${syntax}`)) {
     syntax = 'css'
   }
-  return syntax as 'scss' | 'sass' | 'less' | 'css'
+  return syntax
 }
 
 // 读取文件内容
-export function readFile(resourcePath: string, fileSystem: typeof fs) {
+export function readFile(resourcePath: string, fileSystem: typeof fs): Promise<string> {
   return new Promise((resolve, reject) => {
     fileSystem.readFile(resourcePath, (err, source: string | Buffer) =>
       err ? reject(err) : resolve(Buffer.isBuffer(source) ? source.toString('utf8') : source)
     )
-  }) as Promise<string>
+  })
 }
 
 // 对象上是否包含属性
@@ -169,4 +171,16 @@ export function trimUndefined<T extends object>(obj: object): T {
     }
     return obj
   }, {} as any)
+}
+
+// 获取语法解析插件
+export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
+  let plugin = require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`)
+  if (typeof plugin === 'function') {
+    plugin = {
+      parse: plugin,
+      stringify: require('postcss').stringify,
+    }
+  }
+  return plugin
 }

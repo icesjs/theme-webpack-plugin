@@ -1,31 +1,26 @@
 import * as path from 'path'
 import valueParser from 'postcss-value-parser'
 import { Node } from 'postcss'
-import { hasResourceURL } from '../colors'
+import { hasResourceURL } from './assert'
+import { getTopScopeVariables, toVarsDict, VarsDictItem } from './variables'
 import {
-  determineCanUseAsThemeVarsByValue,
   ExtendPluginOptions,
   ExtendType,
-  getThemeScopeProcessor,
-  getTopScopeVariables,
+  getSourceFile,
+  getVarsMessages,
   insertRawBefore,
   parseURLPaths,
   pluginFactory,
+  PluginMessages,
   PluginOptions,
-  ThemeLoaderData,
-  toVarsDict,
-  VarsDictItem,
+  setVarsMessage,
 } from './tools'
 import {
-  addTitleComment,
-  createDeclarations,
-  createRootRule,
-  createVarsRootRule,
+  determineCanUseAsThemeVarsByValue,
   getDeclProcessor,
-  getSourceFile,
-  getVarsMessages,
-  setVarsMessage,
-} from './helper'
+  getThemeScopeProcessor,
+} from './process'
+import { addTitleComment, createDeclarations, createRootRule, createVarsRootRule } from './helpers'
 
 // 消息 theme-vars 、 theme-root-vars
 export function defineThemeVariablesPlugin(options: PluginOptions) {
@@ -121,7 +116,7 @@ export function defineURLVarsPlugin(options: PluginOptions) {
 
 // 使用主题变量替换变量引用，修改原样式文件
 export function replaceWithThemeVarsPlugin(
-  options: ExtendPluginOptions<ExtendType<Required<ThemeLoaderData>, { isThemeFile: boolean }>>
+  options: ExtendPluginOptions<ExtendType<Required<PluginMessages>, { isThemeFile: boolean }>>
 ) {
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
     OnceExit: async (root, helper) => {

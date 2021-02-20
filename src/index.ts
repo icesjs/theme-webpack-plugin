@@ -1,13 +1,13 @@
 import { Compiler, Plugin as WebpackPlugin } from 'webpack'
 import { PluginOptions } from './options'
-import Plugin from './Plugin'
+import ThemePlugin from './ThemePlugin'
 
 // 使用单例
-let themePlugin: Plugin
+let themePlugin: ThemePlugin
 class ThemeWebpackPlugin implements WebpackPlugin {
   constructor(options?: PluginOptions) {
     if (!themePlugin) {
-      themePlugin = new Plugin(options)
+      themePlugin = new ThemePlugin(options)
     }
   }
   apply(compiler: Compiler) {

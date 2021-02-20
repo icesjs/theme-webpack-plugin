@@ -804,10 +804,10 @@
     lodash "^4.17.19"
     to-fast-properties "^2.0.0"
 
-"@ices/use-loader@^1.3.1":
-  version "1.3.1"
-  resolved "https://registry.npm.taobao.org/@ices/use-loader/download/@ices/use-loader-1.3.1.tgz?cache=0&sync_timestamp=1612858190204&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2F%40ices%2Fuse-loader%2Fdownload%2F%40ices%2Fuse-loader-1.3.1.tgz#43393f7c3566ac92e457d87ba4a85acdf7da2123"
-  integrity sha1-Qzk/fDVmrJLkV9h7pKhazffaISM=
+"@ices/use-loader@^1.4.0":
+  version "1.4.0"
+  resolved "https://registry.npm.taobao.org/@ices/use-loader/download/@ices/use-loader-1.4.0.tgz#9babb98b33aeda8bf2a1710d0fdc9b2212fa2202"
+  integrity sha1-m6u5izOu2ovyoXEND9ybIhL6IgI=
 
 "@nodelib/fs.scandir@2.1.4":
   version "2.1.4"
