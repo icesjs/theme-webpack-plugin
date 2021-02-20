@@ -1,12 +1,13 @@
 {
   "name": "@ices/theme-webpack-plugin",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A library for process themes",
   "main": "dist/index.js",
   "types": "types/index.d.ts",
   "scripts": {
-    "dev": "tsc -p . -w --inlineSourceMap --inlineSources",
-    "build": "rimraf dist types && tsc -p . --sourceMap --inlineSources"
+    "dev": "tsc -p . -w -d --inlineSourceMap --inlineSources --declarationDir types",
+    "build": "rimraf dist && tsc -p . --noUnusedLocals --sourceMap --inlineSources --removeComments && yarn types",
+    "types": "rimraf types && tsc -p . -d --noUnusedLocals --emitDeclarationOnly --declarationDir types"
   },
   "dependencies": {
     "@babel/core": "^7.12.16",

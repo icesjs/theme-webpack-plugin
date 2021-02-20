@@ -14,7 +14,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     if (themePlugin) {
       return themePlugin.apply(compiler)
     }
-    throw new Error('Illegal call')
+    throw new Error('Illegal invocation')
   }
 }
 

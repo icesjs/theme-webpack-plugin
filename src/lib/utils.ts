@@ -155,3 +155,18 @@ export function tryGetCodeIssuerFile(module: any) {
 export function escapeRegExpChar(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '\\x2d')
 }
+
+// 确保文件拥有指定的扩展名
+export function ensureFileExtension(filename: string, ext: string) {
+  return filename.replace(/\s*(?:\.(?:[^.]+)?|)$/, ext)
+}
+
+// 拷贝对象属性中值为非undefined的字段，并返回一个新的对象
+export function trimUndefined<T extends object>(obj: object): T {
+  return Object.entries(obj || {}).reduce((obj, [key, value]) => {
+    if (typeof value !== 'undefined') {
+      obj[key] = value
+    }
+    return obj
+  }, {} as any)
+}

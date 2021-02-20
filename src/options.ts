@@ -4,6 +4,7 @@ import { validate } from 'schema-utils'
 import { Schema } from 'schema-utils/declarations/validate'
 import { selfModuleName } from './lib/selfContext'
 import { resolveModulePath } from './lib/resolve'
+import { ensureFileExtension } from './lib/utils'
 
 const defaultExportPath = '@ices/theme/dist/theme.js'
 
@@ -300,7 +301,7 @@ export function getOptions(opts?: PluginOptions) {
         throw new Error('Invalid filename template')
       }
       // 确保文件后缀为.css，不然浏览器可能不会正常解析该样式文件
-      return template.replace(/\s*(?:\.(?:[^.]+)?|)$/, '.css')
+      return ensureFileExtension(template, '.css')
     },
   })
 

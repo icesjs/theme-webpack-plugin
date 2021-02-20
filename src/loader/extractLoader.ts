@@ -3,23 +3,10 @@ import { format } from 'util'
 import { interpolateName } from 'loader-utils'
 import { ValidPluginOptions } from '../options'
 import { LoaderContext, PluginLoader } from '../Plugin'
-import { hasOwnProperty, normalizePublicPath } from '../lib/utils'
+import { hasOwnProperty, isEsModuleExport, normalizePublicPath } from '../lib/utils'
 import exec from '../lib/vm'
 
 type PitchFunction = import('webpack').loader.Loader['pitch']
-
-// 获取资源内容
-function defaultGetCssContent(exports: any) {
-  let css
-  if (hasOwnProperty(exports, 'toString', 'function')) {
-    css = exports.toString()
-  } else if (Array.isArray(exports)) {
-    css = exports[1] || ''
-  } else {
-    css = exports
-  }
-  return typeof css === 'string' ? css : format(css)
-}
 
 // 获取当前模块文件的构建输出路径
 function getCssOutputPath(
@@ -139,6 +126,34 @@ function getResourcePublicPath(
   return normalizePublicPath(defaultPublicPath)
 }
 
+// 获取资源内容
+function defaultGetCssContent(exports: any) {
+  let css
+  exports = isEsModuleExport(exports) ? exports.default : exports
+  if (hasOwnProperty(exports, 'toString', 'function')) {
+    css = exports.toString()
+  } else if (Array.isArray(exports)) {
+    css = exports[1] || ''
+  } else {
+    css = exports
+  }
+  return typeof css === 'string' ? css : format(css)
+}
+
+// 注入代码到模块代码结尾，并在虚拟机中运行
+function injectScript() {
+  // 这里是虚拟机内的运行环境，模拟的浏览器运行时
+  // 可访问当前处理模块的webpack模块上下文，以及window对象等
+  return `
+    const exports = module.exports
+    const defaultExport = exports && exports.__esModule ? exports.default : exports
+    if (!Array.isArray(defaultExport) && typeof content !== 'undefined' && Array.isArray(content)) {
+      module.exports = content
+      module.exports.__originalExports = exports
+    }
+  `
+}
+
 // normal阶段
 const extractLoader: PluginLoader = function (source: string | Buffer) {
   if (Buffer.isBuffer(source)) {
@@ -148,11 +163,13 @@ const extractLoader: PluginLoader = function (source: string | Buffer) {
   const callback = this.async() || (() => {})
   const { getCssContent = defaultGetCssContent } = pluginOptions
 
+  const moduleContext = {
+    __webpack_public_path__: getResourcePublicPath(this, source, pluginOptions),
+  }
+
   // 执行虚拟机，运行webpack模块，抽取css模块导出的内容
-  exec(this, source, getResourcePublicPath(this, source, pluginOptions))
+  exec(this, moduleContext, source, injectScript())
     .then((exports) => getCssContent(exports, this.resourcePath))
-    //css的源码映射，已经被css-loader内联进源码里面了，不需要处理
-    //要拆分出源码映射文件，optimize-css-assets-webpack-plugin就是干这些事的
     .then((content) => callback(null, content))
     .catch(callback)
 }

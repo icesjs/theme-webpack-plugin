@@ -11,10 +11,9 @@
     "strict": true,
     "alwaysStrict": true,
     "allowJs": false,
-    "noUnusedLocals": true,
-    "removeComments": true,
-    "declaration": true,
-    "declarationDir": "types",
+    "noUnusedLocals": false,
+    "removeComments": false,
+    "declaration": false,
     "outDir": "dist",
     "newLine": "lf",
     "skipLibCheck": true

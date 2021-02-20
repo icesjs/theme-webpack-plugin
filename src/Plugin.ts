@@ -118,10 +118,14 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     const validDefaultTheme = this.getValidDefaultTheme(themeFiles, defaultTheme)
     const code = this.getThemeModuleCode(themeFiles, validDefaultTheme, watchMode)
 
-    await this.writeToThemeModule(themeExportPath, code).catch((err) => {
+    try {
+      // 异步写入时，可能还未写入完成，就被构建器读取解析，造成错误
+      // 小文件同步写入也没啥不可
+      this.writeToThemeModule(themeExportPath, code, true)
+    } catch (err) {
       this.themeFiles.clear()
       throw err
-    })
+    }
   }
 
   // 获取有效的默认主题
@@ -144,7 +148,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   }
 
   // 写入主题模块文件
-  private writeToThemeModule(filePath: string, content: string): Promise<any>
+  // private writeToThemeModule(filePath: string, content: string): Promise<any>
   private writeToThemeModule(filePath: string, content: string, sync: boolean): void
   private writeToThemeModule(filePath: string, content: string, sync = false) {
     if (sync) {
