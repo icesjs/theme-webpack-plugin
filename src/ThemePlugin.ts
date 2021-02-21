@@ -1,6 +1,7 @@
 import type {
   Compiler,
   Configuration,
+  Logger,
   Output as WebpackOutput,
   Plugin as WebpackPlugin,
   RuleSetLoader,
@@ -8,7 +9,8 @@ import type {
   RuleSetUseItem,
 } from 'webpack'
 import { findLoader, hasRuleConditions, isCssRule } from '@ices/use-loader'
-import { PluginOptions, ValidPluginOptions } from './options'
+import { themeRequestToken } from './lib/utils'
+import { getOptions, PluginOptions, ValidPluginOptions } from './options'
 import { ThemeModule } from './ThemeModule'
 import varsLoader, { VarsLoaderOptions } from './loaders/varsLoader'
 import chunkLoader from './loaders/chunkLoader'
@@ -50,14 +52,44 @@ export type CompilerOptions = {
 }
 
 //
-class ThemeWebpackPlugin extends ThemeModule implements WebpackPlugin {
+class ThemeWebpackPlugin implements WebpackPlugin {
+  private readonly options: ValidPluginOptions
   private compilerOutput: CompilerOutput = {}
+  private logger: Logger | null = null
 
   constructor(opts?: PluginOptions) {
-    super(opts)
-    // 注入插件方法到内部loader
+    this.options = getOptions(opts)
+  }
+
+  // 使用 webpack 插件
+  apply(compiler: Compiler) {
+    const { options: compilerOptions } = compiler
+    const { mode, output } = compilerOptions
+    const pluginName = ThemeWebpackPlugin.name
+    const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
+
+    this.compilerOutput = Object.assign({}, output)
+    if (typeof compiler.getInfrastructureLogger === 'function') {
+      this.logger = compiler.getInfrastructureLogger(pluginName)
+    }
+
+    const themeModule = new ThemeModule(this.options, this.logger)
+
+    this.injectLoaderMethod(themeModule)
+    this.applyVarsLoaders(compilerOptions)
+
+    compiler.hooks.run.tapPromise(pluginName, async (compiler) =>
+      themeModule.create(compiler.context || process.cwd(), false)
+    )
+    compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
+      themeModule.create(compiler.context || process.cwd(), !isEnvProduction)
+    )
+  }
+
+  // 注入插件方法到内部loader
+  private injectLoaderMethod(themeModule: ThemeModule) {
     for (const [name, method] of [
-      ['getThemeFiles', () => [...this.themeFiles.values()]],
+      ['getThemeFiles', () => [...themeModule.themeFiles.values()]],
       ['getPluginOptions', () => ({ ...this.options })],
       ['getCompilerOptions', () => ({ output: { ...this.compilerOutput } })],
     ]) {
@@ -65,30 +97,6 @@ class ThemeWebpackPlugin extends ThemeModule implements WebpackPlugin {
         ;(loader as any)[name as string] = method
       }
     }
-  }
-
-  // 使用 webpack 插件
-  apply(compiler: Compiler) {
-    const { options: compilerOptions } = compiler
-    const { mode } = compilerOptions
-    const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
-    const pluginName = ThemeWebpackPlugin.name
-    this.compilerOutput = Object.assign({}, compilerOptions.output)
-    if (typeof compiler.getInfrastructureLogger === 'function') {
-      this.logger = compiler.getInfrastructureLogger(pluginName)
-    }
-
-    this.applyVarsLoaders(compilerOptions)
-
-    compiler.hooks.run.tapPromise(pluginName, async (compiler) =>
-      this.createThemeModule(compiler.context || compilerOptions.context || process.cwd(), false)
-    )
-    compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
-      this.createThemeModule(
-        compiler.context || compilerOptions.context || process.cwd(),
-        !isEnvProduction
-      )
-    )
   }
 
   // 应用loader
@@ -164,7 +172,7 @@ class ThemeWebpackPlugin extends ThemeModule implements WebpackPlugin {
     const loaders: RuleSetUseItem[] = []
     const options = {
       cssModules: cssModules === 'auto' ? isCssRule(rule, { onlyModule: true }) : cssModules,
-      token: this.themeRequestToken,
+      token: themeRequestToken,
       onlyColor,
       syntax,
     } as VarsLoaderOptions

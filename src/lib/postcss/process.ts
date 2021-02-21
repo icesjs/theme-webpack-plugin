@@ -8,7 +8,7 @@ import {
   isPreservedAnimationIdentifier,
   isTopRootDecl,
   isURLFunctionNode,
-  queryRootElement,
+  canSelectRoot,
 } from './assert'
 import {
   makeVariableIdent,
@@ -338,7 +338,7 @@ function processThemeScope(
   if (node.type === 'rule') {
     const { selectors = [] } = node
     node.selectors = selectors.map((selector) =>
-      queryRootElement(selector)
+      canSelectRoot(selector)
         ? selector.replace(/^(?:html|:root)/i, (s) => `${s}${scopeAttr}`)
         : `:root${scopeAttr} ${selector}`
     )

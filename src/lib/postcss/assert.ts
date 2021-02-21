@@ -31,12 +31,6 @@ const imageUrlRegex = /url\(\s*(['"]?)[^'"\s]+?\1\s*\)|(?:-webkit-)?image-set\(/
 
 export const preservedAnimationIdentifier = /^(?:None|none|initial|inherit|linear|ease|ease-in|ease-out|ease-in-out|infinite|normal|reverse|alternate|alternate-reverse|running|paused|forwards|backwards|both)$/
 
-export function isColorName(name: string) {
-  return typeof (name as any) === 'string'
-    ? isCssColor.isKeyword(name) || isCssColor.isTransparent(name)
-    : false
-}
-
 export function isColorValue(value: string) {
   if (typeof (value as any) !== 'string') {
     return false
@@ -69,7 +63,7 @@ export function isRootRuleSelector(selector: string) {
 }
 
 // 选择器是否能够选择中html元素
-export function queryRootElement(selector: string) {
+export function canSelectRoot(selector: string) {
   return /^(?:html|:root)(?=\[[^\]]*]|[:,.>~+\u0020]|$)/i.test(selector)
 }
 

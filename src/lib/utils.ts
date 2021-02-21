@@ -14,8 +14,11 @@ type PostcssASTMeta = {
 
 export type SupportedSyntax = 'scss' | 'sass' | 'less' | 'css'
 
+// 主题请求标识符token
+export const themeRequestToken = getToken()
+
 // 获取一个token，非作为ID，仅用于标记theme文件请求
-export function getToken(length: number = 16) {
+export function getToken(length: number = 8) {
   return Buffer.from(Buffer.from(`${Date.now()}`).toString('base64'))
     .toString('hex')
     .substr(0, Math.max(6, length))
