@@ -100,7 +100,7 @@ class ThemePlugin implements WebpackPlugin {
 
   // 是否处理style模块解析，该方法静态导出，如果有需要hack，可以覆写此方法自行定义
   static shouldResolveStyleModule(resourcePath: string, resourceQuery: string) {
-    return resourceQuery && !normalModuleRegx.test(resourcePath)
+    return !!resourceQuery && !normalModuleRegx.test(resourcePath)
   }
 
   // 解析style资源模块
@@ -145,6 +145,7 @@ class ThemePlugin implements WebpackPlugin {
   }
 
   // 注入插件方法到内部loader
+  // 注入插件方法到内部loaders
   private injectLoaderMethod(themeModule: ThemeModule) {
     for (const [name, method] of [
       ['getThemeFiles', () => [...themeModule.themeFiles.values()]],

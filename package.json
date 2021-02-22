@@ -8,7 +8,7 @@
     "dev": "tsc -p . -w -d --inlineSourceMap --inlineSources --declarationDir types",
     "build": "rimraf dist && tsc -p . --noUnusedLocals --sourceMap --inlineSources --removeComments && yarn types",
     "types": "rimraf types && tsc -p . -d --noUnusedLocals --emitDeclarationOnly --declarationDir types",
-    "prepublishOnly": "conventional-changelog -p angular -r 2 -i CHANGELOG.md -s"
+    "prepublishOnly": "conventional-changelog -p angular -r 1 -i CHANGELOG.md -s"
   },
   "dependencies": {
     "@babel/core": "^7.12.16",
