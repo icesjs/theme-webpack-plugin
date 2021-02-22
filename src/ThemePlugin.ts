@@ -17,6 +17,7 @@ import {
   normalizeRelativePath,
   normalModuleRegx,
   themeRequestToken,
+  trimQueryString,
 } from './lib/utils'
 import { getOptions, PluginOptions, ValidPluginOptions } from './options'
 import { ThemeModule } from './ThemeModule'
@@ -26,6 +27,7 @@ import extractLoader from './loaders/extractLoader'
 import scopeLoader from './loaders/scopeLoader'
 import moduleLoader from './loaders/moduleLoader'
 
+type CompilationModule = import('webpack').compilation.Module
 type WebpackLoader = import('webpack').loader.Loader
 type WebpackLoaderContext = import('webpack').loader.LoaderContext
 type WebpackLoaderCallback = import('webpack').loader.loaderCallback
@@ -96,6 +98,11 @@ class ThemePlugin implements WebpackPlugin {
     compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
       themeModule.create(compiler.context || process.cwd(), !isEnvProduction)
     )
+    compiler.hooks.thisCompilation.tap(pluginName, (compilation) => {
+      compilation.hooks.afterOptimizeModules.tap(pluginName, (modules) =>
+        this.checkImportedThemes(modules, themeModule)
+      )
+    })
   }
 
   // 是否处理style模块解析，该方法静态导出，如果有需要hack，可以覆写此方法自行定义
@@ -107,7 +114,7 @@ class ThemePlugin implements WebpackPlugin {
   private resolveStyleModule(module: any) {
     const { isStyleModule } = this.options
     let { request, context, contextInfo = {} } = module || {}
-    let resourcePath = request.split('!').pop()!.replace(/\?.*/, '')
+    let resourcePath = trimQueryString(request.split('!').pop())
     const resourceQuery = getQueryString(request)
     if (typeof context !== 'string') {
       context = ''
@@ -123,7 +130,7 @@ class ThemePlugin implements WebpackPlugin {
       request
         .split('!')
         .slice(0, -1)
-        .some((file) => isSamePath(file.replace(/\?.*/, ''), loaderPath)) ||
+        .some((file) => isSamePath(trimQueryString(file), loaderPath)) ||
       !ThemePlugin.shouldResolveStyleModule(resourcePath, resourceQuery)
     ) {
       return
@@ -155,6 +162,26 @@ class ThemePlugin implements WebpackPlugin {
       for (const loader of [varsLoader, scopeLoader, extractLoader, chunkLoader, moduleLoader]) {
         ;(loader as any)[name as string] = method
       }
+    }
+  }
+
+  // 检查是否导入了主题模块
+  private checkImportedThemes(modules: CompilationModule[], themeModule: ThemeModule) {
+    if (!this.logger) {
+      return
+    }
+    let noThemes = true
+    for (const module of modules) {
+      if (themeModule.themeFiles.has(trimQueryString((module as any).resource))) {
+        noThemes = false
+        break
+      }
+    }
+    if (noThemes) {
+      this.logger.warn(`There seems to be no import of the theme module`)
+      this.logger.warn(
+        `You should import the '@ices/theme' module or the file configured by 'themeExportPath' option`
+      )
     }
   }
 

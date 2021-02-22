@@ -1,3 +1,9 @@
+# [1.2.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.1.1...v1.2.0) (2021-02-22)
+
+### Features
+
+- support extract theme from vue component (SFC) ([7336959](https://github.com/icesjs/theme-webpack-plugin/commit/73369597681bd4f74846e3168ac589db9087c22c))
+
 ## [1.1.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.0.0...v1.1.1) (2021-02-20)
 
 ### Features

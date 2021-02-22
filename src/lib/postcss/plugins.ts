@@ -150,25 +150,26 @@ export function makeTopScopeVarsDeclPlugin(
   return pluginFactory(options, ({ ...pluginContext }) => ({
     Once: async (root, helper) => {
       const { vars, syntax, regExps } = pluginContext
+      const { variables } = vars
       const properties = new Map<string, VarsDictItem>()
       const rootProperties = new Map<string, VarsDictItem>()
-      for (const varsItem of vars.variables.values()) {
+      for (const varsItem of variables.values()) {
         const { ident, isRootDecl } = varsItem
         ;(isRootDecl ? rootProperties : properties).set(ident, varsItem)
       }
+      if (variables.size) {
+        addTitleComment(null, helper, getSourceFile(helper, root))
+      }
       if (properties.size) {
-        root.append(createDeclarations({ ...pluginContext, properties, helper }, false, 0).decls)
+        root.append(createDeclarations({ ...pluginContext, properties, helper }, true, 0).decls)
       }
       if (rootProperties.size) {
         const decls = createDeclarations(
           { ...pluginContext, properties: rootProperties, helper },
-          false,
+          true,
           2
         ).decls
         root.append(createRootRule(decls, syntax, regExps, helper))
-      }
-      if (root.first) {
-        addTitleComment(root.first, helper, getSourceFile(helper, root))
       }
     },
   }))

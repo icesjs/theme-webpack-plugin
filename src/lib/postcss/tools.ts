@@ -175,7 +175,7 @@ export function insertRawBefore(node: Node | undefined, length = 1) {
       delete raws.before
     }
     const before = (node.raw('before', defaultType) || '').replace(/(.|\r?\n)\1+/g, '$1')
-    raws.before = before.padStart(length, before)
+    raws.before = before.padStart(length, before || '\n')
   }
   return node
 }

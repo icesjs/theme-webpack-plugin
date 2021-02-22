@@ -360,22 +360,8 @@ function defineLoaderData(context: WebpackLoaderContext) {
 
 // 预处理
 async function preProcess(loaderContext: LoaderContext, source: string) {
-  const { resourcePath, data, rootContext, _module } = loaderContext
-  const { isThemeFile, isThemeRequest, syntaxPlugin } = data
-  if (isThemeFile) {
-    if (!isThemeRequest) {
-      // 不允许从用户代码里直接导入主题文件，因为主题文件是要转换为动态加载的chunk的
-      const issuer = tryGetCodeIssuerFile(_module)
-      const err = new Error(
-        `You are importing a theme file from the code${
-          issuer ? ` in '${path.relative(rootContext, issuer)}'` : ''
-        }.\nThe theme file should only be imported and processed by the theme lib and style file.\nMost of the time, it is used as a variable declaration file.`
-      )
-      err.stack = undefined
-      throw err
-    }
-  }
-
+  const { resourcePath, data } = loaderContext
+  const { syntaxPlugin } = data
   const processor = postcss(getPluginsForPitchStage(loaderContext))
   const { messages } = await processor.process(source, {
     syntax: syntaxPlugin,
@@ -383,17 +369,33 @@ async function preProcess(loaderContext: LoaderContext, source: string) {
     to: resourcePath,
     map: false,
   })
-
   await setVarsData(loaderContext, messages)
 }
 
 // pitch 阶段预处理，获取相关数据变量
 export const pitch: PluginLoader['pitch'] = function () {
-  const { isStyleModule, isStylesheet, fileSystem } = defineLoaderData(this)
+  const { isStyleModule, isStylesheet, fileSystem, isThemeFile, isThemeRequest } = defineLoaderData(
+    this
+  )
+
+  if (isThemeFile && !isThemeRequest) {
+    // 不允许从用户代码里直接导入主题文件，因为主题文件是要转换为动态加载的chunk的
+    const issuer = tryGetCodeIssuerFile(this._module)
+    const err = new Error(
+      `You are importing a theme file from the code${
+        issuer ? ` in '${path.relative(this.rootContext, issuer)}'` : ''
+      }.\nThe theme file should only be imported and processed by the theme lib and style file.\nMost of the time, it is used as a variable declaration file.`
+    )
+    err.stack = undefined
+    this.callback(err)
+    return
+  }
+
   if (isStyleModule || !isStylesheet) {
     this.callback(null)
     return
   }
+
   const loaderContext = this as LoaderContext
   const callback = this.async() || (() => {})
 
@@ -423,15 +425,28 @@ const varsLoader: PluginLoader = function (source, map, meta) {
       callback(null, source, map, meta)
       return
     }
+
     const plugins = getPluginsForNormalStage(loaderContext)
     const result = await postcss(plugins).process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      map: false,
+      map: this.sourceMap
+        ? {
+            prev: typeof map === 'string' ? JSON.parse(map) : map,
+            inline: false,
+            annotation: false,
+          }
+        : false,
     })
-    const { css, root, messages, processor } = result
-    callback(null, css, map, createASTMeta({ root, messages, version: processor.version }, meta))
+
+    const { css, map: resultMap, root, messages, processor } = result
+    callback(
+      null,
+      css,
+      resultMap && resultMap.toJSON(),
+      createASTMeta({ root, messages, version: processor.version }, meta)
+    )
     //
   })().catch(callback)
 }

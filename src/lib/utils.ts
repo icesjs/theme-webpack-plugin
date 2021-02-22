@@ -197,6 +197,14 @@ export function trimUndefined<T extends object>(obj?: object): T {
   }, {} as any)
 }
 
+// 去掉查询字符串
+export function trimQueryString(filepath: any) {
+  if (typeof filepath === 'string') {
+    return filepath.replace(/\?.*/, '')
+  }
+  return ''
+}
+
 // 获取语法解析插件
 export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
   let plugin = require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`)

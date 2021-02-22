@@ -36,9 +36,15 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      map: false,
+      map: this.sourceMap
+        ? {
+            prev: typeof map === 'string' ? JSON.parse(map) : map,
+            inline: false,
+            annotation: false,
+          }
+        : false,
     })
-    .then(({ css }) => callback(null, css, map, meta))
+    .then(({ css, map: resultMap }) => callback(null, css, resultMap && resultMap.toJSON(), meta))
     .catch(callback)
 }
 
