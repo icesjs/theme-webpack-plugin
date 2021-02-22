@@ -1,3 +1,9 @@
+## [1.2.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.0...v1.2.1) (2021-02-22)
+
+### Bug Fixes
+
+- fix 'var undefined' error thrown by scss loader ([362fcd7](https://github.com/icesjs/theme-webpack-plugin/commit/362fcd76dbe14a5b16a82441de5e81e2df3f45a6))
+
 # [1.2.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.1.1...v1.2.0) (2021-02-22)
 
 ### Features
