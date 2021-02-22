@@ -148,6 +148,7 @@ export function parseURLPaths(value: string | ValueNode[], includeImageSet = tru
             paths.push(child.value)
           }
         })
+        return false
       }
     })
   }

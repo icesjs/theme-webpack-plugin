@@ -97,13 +97,14 @@ export function createDeclarations(options: CreateRuleOptions, isCopy: boolean, 
   const propDeps: string[] = []
 
   for (const property of properties.values()) {
-    const { ident, originalName, value, originalValue, dependencies } = property
+    const { ident, isRootDecl, originalName, value, originalValue, dependencies } = property
     const processedValue = getProcessedPropertyValue(property, vars, regExps, helper)
-    const declValue = !isCopy
-      ? processedValue === originalValue
-        ? originalName
+    const declValue =
+      !isCopy && !isRootDecl
+        ? processedValue === originalValue
+          ? originalName
+          : processedValue
         : processedValue
-      : processedValue
 
     propDeps.push(originalName, ...dependencies.values())
     const decl = helper.decl({

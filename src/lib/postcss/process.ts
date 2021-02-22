@@ -1,14 +1,14 @@
 import * as path from 'path'
 import { ChildNode, Declaration, Helpers, Root } from 'postcss'
-import valueParser, { FunctionNode } from 'postcss-value-parser'
+import valueParser, { FunctionNode, Node as ValueNode, WordNode } from 'postcss-value-parser'
 import { isRelativeURI, normalizeRelativePath } from '../utils'
 import {
+  canSelectRoot,
   isColorProperty,
   isColorValue,
   isPreservedAnimationIdentifier,
   isTopRootDecl,
   isURLFunctionNode,
-  canSelectRoot,
 } from './assert'
 import {
   makeVariableIdent,
@@ -25,35 +25,27 @@ import {
   setVarsMessage,
 } from './tools'
 
-type DeclValueProcessor = (value: string, isRootDecl: boolean) => string
+type DeclValueProcessor = ReturnType<typeof getDeclValueProcessor>
+
+type ProcessDeclValueWordOptions = {
+  node: WordNode
+  isRootDecl: boolean
+  isVarFunction: boolean
+  isDefault: boolean
+  hasDefault: boolean
+  onlyColor: boolean
+  vars: VariablesContainer
+  regExps: ThemePropertyMatcher
+  helper: Helpers
+  processor: DeclValueProcessor
+}
+
 type PropertyLike = {
   ident: string
   value: string
   originalValue: string
   dependencies?: VarsDependencies
   urlDependencies?: Map<string, string>
-}
-
-// 获取变量抽取迭代处理函数。
-// 消息 theme-vars。
-export function getDeclProcessor(options: {
-  onlyColor: boolean
-  syntax: string
-  vars: VariablesContainer
-  regExps: ThemePropertyMatcher
-  helper: Helpers
-}) {
-  const { onlyColor, syntax, vars, regExps, helper } = options
-  const processor: DeclValueProcessor = getDeclValueProcessor(onlyColor, vars, regExps, helper)
-  return (decl: Declaration) => {
-    if (onlyColor && !regExps[2].test(decl.prop) && !isColorProperty(decl.prop)) {
-      return
-    }
-    decl.value = processor(decl.value, isTopRootDecl(decl))
-    if (regExps[2].test(decl.prop)) {
-      decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
-    }
-  }
 }
 
 // 判定一个值节点是否是主题相关的变量
@@ -105,72 +97,166 @@ export function determineCanUseAsThemeVarsByValue(value: string, onlyColor: bool
   return true
 }
 
-// 属性声明的值处理函数
-// 消息 theme-prop-vars
+// 获取变量抽取迭代处理函数。
+// 消息 theme-vars。
+export function getDeclProcessor(options: {
+  onlyColor: boolean
+  syntax: string
+  vars: VariablesContainer
+  regExps: ThemePropertyMatcher
+  helper: Helpers
+}) {
+  const { onlyColor, syntax, vars, regExps, helper } = options
+  const processor: DeclValueProcessor = getDeclValueProcessor(onlyColor, vars, regExps, helper)
+  return (decl: Declaration) => {
+    if (onlyColor && !regExps[2].test(decl.prop) && !isColorProperty(decl.prop)) {
+      return
+    }
+    decl.value = processor(decl.value, isTopRootDecl(decl), false, false, false)
+    if (regExps[2].test(decl.prop)) {
+      decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
+    }
+  }
+}
+
 function getDeclValueProcessor(
   onlyColor: boolean,
   vars: VariablesContainer,
   regExps: ThemePropertyMatcher,
   helper: Helpers
 ) {
-  const { context, variables, references } = vars
-  const processor = (value: string, isRootDecl: boolean) => {
+  const processor = (
+    value: string,
+    isRootDecl: boolean,
+    isVarFunction = false,
+    isDefault: boolean,
+    hasDefault: boolean
+  ) => {
     if (!value) {
       return ''
     }
-
     let changed = false
-    const parsed = valueParser(value)
 
-    // 迭代值节点
-    parsed.walk((node) => {
-      // 非:root规则，不处理自定义属性变量（--var-name），因为css自定义属性可用从父级继承值，运行时不一定是全局变量值
-      if (node.type === 'word' && regExps[isRootDecl ? 0 : 1].test(node.value)) {
-        const varName = node.value
-        const ident = makeVariableIdent(varName)
-        const refVars = references.get(ident)
-        if (refVars) {
-          changed = true
-          // 递归处理引用值
-          node.value = processor(refVars.originalValue, isRootDecl)
-          //
-        } else if (determineCanExtractToRootDeclByIdent(ident, onlyColor, context, variables)) {
-          //
-          const originalValue = node.value
-          const varItem = variables.get(ident)!
-          const value = varItem.value || originalValue
-          const dependencies = varItem.dependencies
-          setVarsMessage({
-            ident,
-            originalName: varName,
-            originalValue,
+    const iterator = (
+      node: ValueNode,
+      isVarFunction: boolean,
+      isDefault: boolean,
+      hasDefault: boolean
+    ) => {
+      if (node.type === 'function' && node.value === 'var') {
+        valueParser.walk(node.nodes, (child, index, nodes) =>
+          iterator(child, true, index > 0, nodes.length > 1)
+        )
+        return false
+      } else if (node.type === 'word' && regExps[0].test(node.value)) {
+        if (
+          processDeclValueWord({
+            node,
+            isVarFunction,
+            isDefault,
+            hasDefault,
             isRootDecl,
-            value,
-            helper,
-            type: 'theme-prop-vars',
-            parsed: true,
-            dependencies,
-          })
-
-          // 处理URL地址
-          const defaultValue = getProcessedPropertyValue(
-            { ident, originalValue, value, dependencies },
+            onlyColor,
             vars,
+            helper,
             regExps,
-            helper
-          )
-
-          // 更新属性声明的值（修改原样式文件）
-          node.value = `var(${ident}, ${defaultValue})`
+            processor,
+          })
+        ) {
           changed = true
         }
       }
-    })
-    // 修改声明值
+    }
+
+    const parsed = valueParser(value)
+    parsed.walk((node) => iterator(node, isVarFunction, isDefault, hasDefault))
+
     return changed ? valueParser.stringify(parsed.nodes) : value
   }
   //
   return processor
+}
+
+// 属性声明的值处理函数
+// 消息 theme-prop-vars
+function processDeclValueWord(options: ProcessDeclValueWordOptions) {
+  const {
+    node,
+    isRootDecl,
+    isVarFunction,
+    isDefault,
+    hasDefault,
+    onlyColor,
+    vars,
+    regExps,
+    helper,
+    processor,
+  } = options
+  const { references, variables, context } = vars
+  const varName = node.value
+  const ident = makeVariableIdent(varName)
+  const refVars = references.get(ident)
+  let changed = false
+  if (refVars) {
+    changed = true
+    // 递归处理引用值
+    node.value = processor(refVars.originalValue, isRootDecl, isVarFunction, isDefault, hasDefault)
+    //
+  } else if (determineCanExtractToRootDeclByIdent(ident, onlyColor, context, variables)) {
+    //
+    const originalValue = node.value
+    const varItem = variables.get(ident)!
+    const value = varItem.value || originalValue
+    const dependencies = varItem.dependencies
+    setVarsMessage({
+      ident,
+      originalName: varName,
+      originalValue,
+      isRootDecl,
+      value,
+      helper,
+      type: 'theme-prop-vars',
+      parsed: true,
+      dependencies,
+    })
+
+    // 处理URL地址
+    const processedValue = getProcessedPropertyValue(
+      { ident, originalValue, value, dependencies },
+      vars,
+      regExps,
+      helper
+    )
+
+    let defaultValue
+    if (isVarFunction && regExps[2].test(processedValue)) {
+      if (!isDefault) {
+        defaultValue = value
+      } else {
+        defaultValue = processedValue
+      }
+    } else {
+      defaultValue = processedValue
+    }
+
+    // 更新属性声明的值（修改原样式文件）
+    if (isVarFunction) {
+      if (hasDefault) {
+        if (isDefault) {
+          node.value = processedValue
+        } else {
+          node.value = ident
+        }
+      } else {
+        node.value = `${ident}, ${defaultValue}`
+      }
+    } else {
+      node.value = `var(${ident}, ${defaultValue})`
+    }
+
+    changed = true
+  }
+  return changed
 }
 
 // 修正属性声明中的外部资源引用地址
@@ -239,6 +325,7 @@ function getURLValueProcessor(options: {
             updated = true
           }
         }
+        return false
       } else if (node.type === 'word' && regExps[0].test(node.value)) {
         // 是一个变量引用
         const ident = makeVariableIdent(node.value)
