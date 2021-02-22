@@ -1,6 +1,5 @@
 import * as path from 'path'
-import * as fs from 'fs'
-import { getContextFromFile, selfContext } from './selfContext'
+import { getContextFromFile } from './selfContext'
 import { containFile, escapeRegExpChar, isStylesheet } from './utils'
 
 type Module = NodeJS.Module
@@ -77,11 +76,12 @@ export function getModuleFromCache(name: string) {
   return modules
 }
 
-export function isFromModule(name: string, file: string) {
+export function isFromModule(name: string | RegExp, file: string) {
   const context = getContextFromFile(file)
   if (context) {
     try {
-      return require(path.join(context, 'package.json')).name === name
+      const moduleName = require(path.join(context, 'package.json')).name
+      return name instanceof RegExp ? name.test(moduleName) : name === moduleName
     } catch (e) {
       return false
     }
@@ -108,33 +108,6 @@ export function resolveModulePath(name: string, paths = [process.cwd()]) {
     }
     throw err
   }
-}
-
-export function resolveModule(name: string, paths?: string[]) {
-  if (
-    name !== 'webpack' &&
-    !(resolveModule as any).webpack &&
-    !__filename.startsWith(process.cwd())
-  ) {
-    // 因为 webpack 在当前模块中是个 peerDependency
-    // 如果从当前模块中加载依赖了 webpack 的模块，可能会出现加载不到 webpack 的情况
-    // 比如使用 link 命令创建当前模块的符号链接到当前工作目录时
-    // 一般在开发调试阶段才会进入到这里
-    const webpack = path.join(selfContext, 'node_modules/webpack')
-    if (!fs.existsSync(webpack)) {
-      const target = path.dirname(resolveModulePath('webpack/package.json'))
-      fs.symlinkSync(target, webpack, 'dir')
-    }
-    Object.defineProperty(resolveModule, 'webpack', {
-      value: webpack,
-    })
-  }
-  //
-  return path.isAbsolute(name) ? require(name) : require(resolveModulePath(name, paths))
-}
-
-export function resolveWebpack(paths?: string[]) {
-  return resolveModule('webpack', paths)
 }
 
 function normalizeTargets(targets: string[]) {

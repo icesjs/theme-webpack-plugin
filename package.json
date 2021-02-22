@@ -1,13 +1,14 @@
 {
   "name": "@ices/theme-webpack-plugin",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "A library for process themes",
   "main": "dist/index.js",
   "types": "types/index.d.ts",
   "scripts": {
     "dev": "tsc -p . -w -d --inlineSourceMap --inlineSources --declarationDir types",
     "build": "rimraf dist && tsc -p . --noUnusedLocals --sourceMap --inlineSources --removeComments && yarn types",
-    "types": "rimraf types && tsc -p . -d --noUnusedLocals --emitDeclarationOnly --declarationDir types"
+    "types": "rimraf types && tsc -p . -d --noUnusedLocals --emitDeclarationOnly --declarationDir types",
+    "prepublishOnly": "conventional-changelog -p angular -r 2 -i CHANGELOG.md -s"
   },
   "dependencies": {
     "@babel/core": "^7.12.16",
@@ -23,13 +24,17 @@
     "postcss": "^8.2.4",
     "postcss-import": "^14.0.0",
     "postcss-less": "^4.0.0",
-    "postcss-modules": "^4.0.0",
     "postcss-safe-parser": "^5.0.2",
     "postcss-sass": "^0.4.4",
     "postcss-scss": "^3.0.4",
     "postcss-value-parser": "^4.1.0",
     "schema-utils": "^3.0.0",
     "tslib": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ices/theme": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/babel__core": "^7.1.12",
@@ -38,6 +43,7 @@
     "@types/node": "^14.14.20",
     "@types/postcss-import": "^12.0.0",
     "@types/webpack": "^4.41.25",
+    "conventional-changelog-cli": "^2.1.1",
     "husky": "^4.3.7",
     "lint-staged": "^10.5.3",
     "prettier": "^2.2.1",

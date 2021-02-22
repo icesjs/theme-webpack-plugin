@@ -4,7 +4,7 @@ import { validate } from 'schema-utils'
 import { Schema } from 'schema-utils/declarations/validate'
 import { selfModuleName } from './lib/selfContext'
 import { resolveModulePath } from './lib/resolve'
-import { ensureFileExtension } from './lib/utils'
+import { ensureFileExtension, isStylesheet, trimUndefined } from './lib/utils'
 
 const defaultExportPath = '@ices/theme/dist/theme.js'
 
@@ -114,15 +114,6 @@ export interface PluginOptions {
    */
   esModule?: boolean
   /**
-   * 是否强制应用 cssModules 插件，并设置 postcss-modules 插件的配置项（此配置仅仅用于语法解析）。<br>
-   * 如果值为一个对象，将传递给 postcss-modules 插件。<br>
-   * 注意，此处配置仅在抽取变量时，用于语法解析，且不会影响实际的样式文件处理输出。<br>
-   * 如果你需要配置实际的 css modules 文件的转换输出规则，你仍然需要去你配置 loader 的地方去配置。<br>
-   * 默认值为 auto，即根据文件扩展名(.module.xxx)来判定是否应用 postcss-modules 插件。<br>
-   * 如果不带 .module 后缀的样式文件也启用了cssModules，则可开启此项。
-   */
-  cssModules?: boolean | 'auto' | { [p: string]: any }
-  /**
    * 是否将除默认主题外的主题抽取成单独的文件发布（也即常说的split code）。默认为 <code>true</code> 。<br>
    * 如果不抽取，则所有主题样式都默认与主样式文件打包在一起，并以不同属性值作为命名空间进行区分。<br>
    * 如果主题文件里不仅仅只是变量声明，还包含其他的一些非变量类样式，建议将主题文件单独发布。<br>
@@ -149,6 +140,31 @@ export interface PluginOptions {
    * @param resourcePath 被处理样式文件的绝对路径。
    */
   getCssContent?: (exports: any, resourcePath: string) => string | PromiseLike<string>
+  /**
+   * 根据请求参数，判断非标准css文件名称的请求是不是一个css模块请求。<br>
+   * 一般情况下，主题插件会自动为所有已经配置的模块规则中的css模块，添加正确的变量抽取loader，而对于非标准的css模块就无能为力了。
+   * 比如在vue组件中，css是通过组件中的<style>标签嵌入的，对css模块的请求是由vue-style-loader动态生成的，
+   * 这时候通过模块rule配置的loader，就没办法直接应用于这个动态生成的css模块请求。<br>
+   * 通过此项配置一个判断函数，就能够为这些非标准css模块后缀名的模块，应用变量抽取loader。<br>
+   * 该项配置的默认值是一个检测是否是vue组件css模块请求的判断函数，如果你需要自己来判断，或者默认的判断不准确，则可以配置此项。<br>
+   * 判断函数可以返回一个布尔值，或者字符串，返回字符串时，可以精确指定该模块的css语法类型(css、less、scss、sass)，
+   * 返回布尔值，则插件会先根据资源请求中应用的loader名称来判断模块语法类型，判断不出时则备选为普通css语法格式。<br>
+   * 注意，标准的常见css模块名称后缀(.css、.less、.scss、.sass)，不会进入到这个判断函数，
+   * 而且作为默认，在进入到该判断函数前，都会先调用 <code>ThemePlugin</code> 上的静态方法 <code>shouldResolveStyleModule()</code> <br>
+   * 如果你需要修改这个默认的筛选行为，可以从导出的 <code> ThemePlugin </code> 上覆盖这个静态方法。比如：
+   * <pre>
+   * require('@ices/theme-webpack-plugin').ThemePlugin.shouldResolveStyleModule = (resourcePath, resourceQuery) => true
+   * </pre><br>
+   * 另外，本插件未处理stylus语法格式。
+   */
+  isStyleModule?: (module: {
+    request: string
+    resourcePath: string
+    resourceQuery: string
+    context: string
+    issuer: string
+    query: { [p: string]: string | boolean }
+  }) => boolean | string
 }
 
 //
@@ -240,14 +256,12 @@ const schema: Schema = {
       type: 'string',
       minLength: 1,
     },
-    cssModules: {
-      description:
-        'If set true, the css modules will be used always. "auto" means ".module" suffix of file will enabled (default to "auto").',
-      default: 'auto',
-      oneOf: [{ type: 'boolean' }, { type: 'object' }, { enum: ['auto'] }],
-    },
     getCssContent: {
       description: 'A function to return the css content from javascript module.',
+      instanceof: 'Function',
+    },
+    isStyleModule: {
+      description: 'A function to determine the requested resource is a css module.',
       instanceof: 'Function',
     },
   },
@@ -259,32 +273,19 @@ export type ValidPluginOptions = ExcludeNullableValueExcept<
   'themeFilter' | 'publicPath' | 'resourcePublicPath' | 'resourceFilter' | 'getCssContent'
 >
 
-//
-export function getOptions(opts?: PluginOptions) {
-  const options = Object.assign(
-    {
-      // themeFilter: null,
-      // publicPath: '',
-      // resourcePublicPath,
-      // resourceFilter,
-      // getCssContent
-      themes: [],
-      themeExportPath: defaultExportPath,
-      defaultTheme: 'default',
-      onlyColor: true,
-      filename: '[name].[contenthash:8].chunk.css',
-      outputPath: 'themes',
-      esModule: true,
-      extract: true,
-      themeAttrName: 'data-theme',
-      cssModules: 'auto',
-    },
-    opts
-  )
-  validate(schema, options, {
-    name: selfModuleName,
-    baseDataPath: 'options',
-  })
+const isStyleModule: PluginOptions['isStyleModule'] = ({ resourcePath, query }) => {
+  if (
+    query.vue &&
+    query.type === 'style' &&
+    resourcePath.endsWith('.vue') &&
+    isStylesheet(`.${query.lang}`)
+  ) {
+    return query.lang
+  }
+  return false
+}
+
+function initDefaultOptions(options: ValidPluginOptions) {
   const { themeExportPath, filename, defaultTheme } = options
 
   options.themeExportPath =
@@ -297,13 +298,44 @@ export function getOptions(opts?: PluginOptions) {
     filename: (resourcePath: string, resourceQuery: string) => {
       const template =
         typeof filename === 'function' ? filename(resourcePath, resourceQuery) : filename
-      if (typeof template !== 'string') {
+      if (typeof (template as any) !== 'string') {
         throw new Error('Invalid filename template')
       }
       // 确保文件后缀为.css，不然浏览器可能不会正常解析该样式文件
       return ensureFileExtension(template, '.css')
     },
   })
+}
+
+//
+export function getOptions(opts?: PluginOptions) {
+  const options = Object.assign(
+    {
+      // themeFilter: null,
+      // publicPath: '',
+      // resourcePublicPath,
+      // resourceFilter,
+      // getCssContent,
+      themes: [],
+      themeExportPath: defaultExportPath,
+      defaultTheme: 'default',
+      onlyColor: true,
+      filename: '[name].[contenthash:8].chunk.css',
+      outputPath: 'themes',
+      esModule: true,
+      extract: true,
+      themeAttrName: 'data-theme',
+      isStyleModule,
+    } as ValidPluginOptions,
+    trimUndefined<PluginOptions>(opts)
+  )
+
+  validate(schema, options, {
+    name: selfModuleName,
+    baseDataPath: 'options',
+  })
+
+  initDefaultOptions(options)
 
   return options as ValidPluginOptions
 }

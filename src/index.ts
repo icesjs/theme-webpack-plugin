@@ -5,6 +5,7 @@ import ThemePlugin from './ThemePlugin'
 // 使用单例
 let themePlugin: ThemePlugin
 class ThemeWebpackPlugin implements WebpackPlugin {
+  static ThemePlugin = ThemePlugin
   constructor(options?: PluginOptions) {
     if (!themePlugin) {
       themePlugin = new ThemePlugin(options)

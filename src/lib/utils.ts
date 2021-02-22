@@ -17,6 +17,9 @@ export type SupportedSyntax = 'scss' | 'sass' | 'less' | 'css'
 // 主题请求标识符token
 export const themeRequestToken = getToken()
 
+// 常见的web资源模块的后缀名称
+export const normalModuleRegx = /\.(?:m?js|node|jsx|tsx?|json|html?|ya?ml|css|less|s[ac]ss|stylus|styl|bmp|ico|gif|jpe?g|png|svg|avif|md|eot|woff|otf|ttf|mp[34]|ogg)$/i
+
 // 获取一个token，非作为ID，仅用于标记theme文件请求
 export function getToken(length: number = 8) {
   return Buffer.from(Buffer.from(`${Date.now()}`).toString('base64'))
@@ -43,11 +46,26 @@ export function createASTMeta(meta: Omit<PostcssASTMeta, 'type'>, prevMeta: any)
 }
 
 // 解析查询参数为一个对象
-export function getQueryObject(resourceQuery: string): { token?: string; [p: string]: any } {
-  if (resourceQuery && resourceQuery.startsWith('?')) {
-    return parseQuery(resourceQuery)
+export function getQueryObject(resourceQuery: any): { token?: string; [p: string]: any } {
+  if (resourceQuery) {
+    if (typeof resourceQuery === 'object') {
+      return resourceQuery
+    }
+    if (typeof resourceQuery === 'string') {
+      return parseQuery(resourceQuery.startsWith('?') ? resourceQuery : `?${resourceQuery}`)
+    }
   }
   return {}
+}
+
+// 获取资源请求的查询参数字符串（?xxx）
+export function getQueryString(resource: any) {
+  return typeof resource === 'string'
+    ? resource
+        .split('!')
+        .pop()!
+        .replace(/^.*?(?=\?|$)/, '')
+    : ''
 }
 
 // 判断一个文件是否在某些根路径下
@@ -67,7 +85,7 @@ export function isStylesheet(file: string) {
 
 // 判断是否是相同的地址
 export function isSamePath(x: any, y: any) {
-  if (typeof x !== 'string' || typeof y !== 'string') {
+  if (!x || !y || typeof x !== 'string' || typeof y !== 'string') {
     return false
   }
   return path.normalize(x).toLowerCase() === path.normalize(y).toLowerCase()
@@ -121,23 +139,26 @@ export function normalizePublicPath(publicPath: any): string {
 }
 
 // 格式化相对路径
-export function normalizeRelativePath(path: string) {
-  path = path.trim()
-  if (!path.startsWith('.')) {
-    path = `./${path}`
+export function normalizeRelativePath(filepath: string, context?: string) {
+  filepath = filepath.trim()
+  if (context && path.isAbsolute(filepath)) {
+    filepath = path.relative(context, filepath)
   }
-  return path.replace(/\\/g, '/')
+  if (!path.isAbsolute(filepath) && !filepath.startsWith('.')) {
+    filepath = `./${filepath}`
+  }
+  return filepath.replace(/\\/g, '/')
 }
 
 // 判断是不是相对地址
-export function isRelativePath(path: string) {
-  if (typeof (path as any) !== 'string' || !path) {
+export function isRelativeURI(uri: string) {
+  if (typeof (uri as any) !== 'string' || !uri) {
     return false
   }
   return (
-    !/^([a-z]:)?[/\\]/i.test(path) &&
-    !/^(?:\w+:)?\/\/(\S+)$/.test(path) &&
-    !/^[/\\]{2,}[^/\\]+[/\\]+[^/\\]+/.test(path)
+    !/^([a-z]:)?[/\\]/i.test(uri) &&
+    !/^(?:\w+:)?\/\/(\S+)$/.test(uri) &&
+    !/^[/\\]{2,}[^/\\]+[/\\]+[^/\\]+/.test(uri)
   )
 }
 
@@ -167,7 +188,7 @@ export function ensureFileExtension(filename: string, ext: string) {
 }
 
 // 拷贝对象属性中值为非undefined的字段，并返回一个新的对象
-export function trimUndefined<T extends object>(obj: object): T {
+export function trimUndefined<T extends object>(obj?: object): T {
   return Object.entries(obj || {}).reduce((obj, [key, value]) => {
     if (typeof value !== 'undefined') {
       obj[key] = value

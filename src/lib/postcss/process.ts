@@ -1,7 +1,7 @@
 import * as path from 'path'
 import { ChildNode, Declaration, Helpers, Root } from 'postcss'
 import valueParser, { FunctionNode } from 'postcss-value-parser'
-import { isRelativePath, normalizeRelativePath } from '../utils'
+import { isRelativeURI, normalizeRelativePath } from '../utils'
 import {
   isColorProperty,
   isColorValue,
@@ -262,7 +262,7 @@ function getURLValueProcessor(options: {
 // 更新url函数节点中的url值
 function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, basedir: string) {
   const { data, from } = varsDict
-  const relativeUrls = new Set([...data].filter((url) => isRelativePath(url)))
+  const relativeUrls = new Set([...data].filter((url) => isRelativeURI(url)))
   if (!relativeUrls.size) {
     return false
   }

@@ -34,9 +34,9 @@ import { ThemeVarsMessage } from '../lib/postcss/variables'
 
 export interface VarsLoaderOptions {
   syntax: SupportedSyntax
-  cssModules: boolean | { [p: string]: any }
   onlyColor: boolean
   token: string
+  isStyleModule?: boolean
   themeAttrName?: string
 }
 
@@ -44,6 +44,7 @@ interface LoaderData extends PluginMessages {
   readonly options: VarsLoaderOptions
   readonly themeFiles: string[]
   readonly isStylesheet: boolean
+  readonly isStyleModule: boolean
   readonly isThemeFile: boolean
   readonly isThemeRequest: boolean
   readonly syntaxPlugin: Syntax
@@ -56,13 +57,13 @@ interface LoaderContext extends WebpackLoaderContext {
 }
 
 // 判断是不是主题文件
-function isThemeFile(file: string, themeFiles: string[]) {
+function isThemeStyleFile(file: string, themeFiles: string[]) {
   return themeFiles.some((theme) => isSamePath(file, theme))
 }
 
 // 判断是不是依赖的主题文件
 function isThemeDependency({ type, plugin, file }: Message, themeFiles: string[]) {
-  return type === 'dependency' && plugin === 'postcss-import' && isThemeFile(file, themeFiles)
+  return type === 'dependency' && plugin === 'postcss-import' && isThemeStyleFile(file, themeFiles)
 }
 
 // 从消息中筛选依赖的主题文件
@@ -127,7 +128,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
     // 处理主题文件
     const { messages } = await postcss([
       //
-      ...getCommonPlugins(loaderContext, false, false),
+      ...getCommonPlugins(loaderContext, false),
       defineThemeVariablesPlugin(extractOptions),
       //
     ]).process(source, {
@@ -151,7 +152,7 @@ async function makeThemeVarsFile(loaderContext: LoaderContext, source: string, f
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
 
   const { variablesMessages, urlMessages } = await postcss([
-    ...getCommonPlugins(loaderContext, false, false),
+    ...getCommonPlugins(loaderContext, false),
     defineTopScopeVarsPlugin({ ...extractOptions }),
   ])
     .process(source, {
@@ -200,8 +201,8 @@ function getResolveImportPlugin(loaderContext: LoaderContext) {
           const file = await resolveStyle(resolve, id, syntax, context)
           if (
             isSamePath(sourceFile, resourcePath) &&
-            !isThemeFile(resourcePath, themeFiles) &&
-            !isThemeFile(file, themeFiles)
+            !isThemeStyleFile(resourcePath, themeFiles) &&
+            !isThemeStyleFile(file, themeFiles)
           ) {
             // 如果是被loader处理的资源文件，其中导入的是要是主题文件，才进行处理
             return
@@ -224,7 +225,6 @@ function getResolveImportPlugin(loaderContext: LoaderContext) {
 function getCommonPlugins(
   loaderContext: LoaderContext,
   mergeThemeFile: boolean,
-  allowCssModules: boolean,
   importOptions: AtImportOptions = {}
 ): AcceptedPlugin[] {
   const { rootContext, data } = loaderContext
@@ -233,20 +233,6 @@ function getCommonPlugins(
   const { plugins: atImportPlugins = [], ...restImportOptions } = importOptions
   const { plugin: resolveImportPlugin, filter, resolve } = getResolveImportPlugin(loaderContext)
   const pluginOptions = { syntax, syntaxPlugin, onlyColor }
-
-  /*  if (allowCssModules && cssModules) {
-    plugins.push(
-      require('postcss-modules')(
-        Object.assign(
-          {
-            getJSON: () => {},
-            exportGlobals: false,
-          },
-          cssModules
-        )
-      )
-    )
-  }*/
 
   return [
     resolveImportPlugin,
@@ -265,7 +251,7 @@ function getCommonPlugins(
       ],
 
       load: async (filename: string) =>
-        mergeThemeFile && isThemeFile(filename, themeFiles)
+        mergeThemeFile && isThemeStyleFile(filename, themeFiles)
           ? makeThemeVarsFile(loaderContext, await readFile(filename, fileSystem), filename)
           : readFile(filename, fileSystem),
 
@@ -284,7 +270,7 @@ function getLoaderOptions(loaderContext: WebpackLoaderContext) {
 
 // 获取pitch阶段的处理插件
 function getPluginsForPitchStage(loaderContext: LoaderContext) {
-  const { isThemeRequest, syntaxPlugin, options, isThemeFile } = loaderContext.data
+  const { isThemeRequest, syntaxPlugin, options } = loaderContext.data
   const { syntax, onlyColor } = options
   const extractOptions = { syntax, syntaxPlugin, onlyColor }
   const plugins = []
@@ -293,7 +279,7 @@ function getPluginsForPitchStage(loaderContext: LoaderContext) {
     plugins.push(defineContextVarsPlugin(extractOptions))
   }
 
-  plugins.push(...getCommonPlugins(loaderContext, false, !isThemeFile))
+  plugins.push(...getCommonPlugins(loaderContext, false))
 
   plugins.push(
     !isThemeRequest
@@ -313,7 +299,7 @@ function getPluginsForNormalStage(loaderContext: LoaderContext) {
   const plugins = []
 
   if (!isThemeFile) {
-    plugins.push(...getCommonPlugins(loaderContext, true, false))
+    plugins.push(...getCommonPlugins(loaderContext, true))
   }
 
   plugins.push(
@@ -334,21 +320,25 @@ function getPluginsForNormalStage(loaderContext: LoaderContext) {
 // 定义上下文数据
 function defineLoaderData(context: WebpackLoaderContext) {
   const { resourcePath, resourceQuery, data } = context
-  const { token } = getQueryObject(resourceQuery)
+  const { token: queryToken } = getQueryObject(resourceQuery)
   const options = getLoaderOptions(context)
-  const { syntax, token: themeToken } = options
+  const { syntax, token, isStyleModule } = options
   const themeFiles = varsLoader.getThemeFiles!()
+  const isThemeFile = isThemeStyleFile(resourcePath, themeFiles)
 
   // 定义上下文数据，只读，且不能被遍历，不能被删除
   return Object.defineProperties(data, {
     isStylesheet: {
       value: isStylesheet(resourcePath),
     },
+    isStyleModule: {
+      value: !!isStyleModule,
+    },
     isThemeFile: {
-      value: isThemeFile(resourcePath, themeFiles),
+      value: isThemeFile,
     },
     isThemeRequest: {
-      value: token === themeToken,
+      value: isThemeFile && token === queryToken,
     },
     syntaxPlugin: {
       value: getSyntaxPlugin(syntax),
@@ -368,46 +358,48 @@ function defineLoaderData(context: WebpackLoaderContext) {
   }) as LoaderData
 }
 
+// 预处理
+async function preProcess(loaderContext: LoaderContext, source: string) {
+  const { resourcePath, data, rootContext, _module } = loaderContext
+  const { isThemeFile, isThemeRequest, syntaxPlugin } = data
+  if (isThemeFile) {
+    if (!isThemeRequest) {
+      // 不允许从用户代码里直接导入主题文件，因为主题文件是要转换为动态加载的chunk的
+      const issuer = tryGetCodeIssuerFile(_module)
+      const err = new Error(
+        `You are importing a theme file from the code${
+          issuer ? ` in '${path.relative(rootContext, issuer)}'` : ''
+        }.\nThe theme file should only be imported and processed by the theme lib and style file.\nMost of the time, it is used as a variable declaration file.`
+      )
+      err.stack = undefined
+      throw err
+    }
+  }
+
+  const processor = postcss(getPluginsForPitchStage(loaderContext))
+  const { messages } = await processor.process(source, {
+    syntax: syntaxPlugin,
+    from: resourcePath,
+    to: resourcePath,
+    map: false,
+  })
+
+  await setVarsData(loaderContext, messages)
+}
+
 // pitch 阶段预处理，获取相关数据变量
 export const pitch: PluginLoader['pitch'] = function () {
-  if (!defineLoaderData(this).isStylesheet) {
+  const { isStyleModule, isStylesheet, fileSystem } = defineLoaderData(this)
+  if (isStyleModule || !isStylesheet) {
     this.callback(null)
     return
   }
+  const loaderContext = this as LoaderContext
   const callback = this.async() || (() => {})
-  //
-  ;(async () => {
-    const loaderContext = this as LoaderContext
-    const { resourcePath, data, rootContext } = loaderContext
-    const { fileSystem, isThemeFile, isThemeRequest, syntaxPlugin } = data
-    const source = await readFile(resourcePath, fileSystem)
 
-    if (isThemeFile) {
-      if (!isThemeRequest) {
-        // 不允许从用户代码里直接导入主题文件，因为主题文件是要转换为动态加载的chunk的
-        const issuer = tryGetCodeIssuerFile(this._module)
-        const err = new Error(
-          `You are importing a theme file from the code${
-            issuer ? ` in '${path.relative(rootContext, issuer)}'` : ''
-          }.\nThe theme file should only be imported and processed by the theme lib and style file.\nMost of the time, it is used as a variable declaration file.`
-        )
-        err.stack = undefined
-        throw err
-      }
-    }
-
-    const processor = postcss(getPluginsForPitchStage(loaderContext))
-    const { messages } = await processor.process(source, {
-      syntax: syntaxPlugin,
-      from: resourcePath,
-      to: resourcePath,
-      map: false,
-    })
-
-    await setVarsData(loaderContext, messages)
-  })()
-    // 执行回调
-    .then((css: any) => (typeof css === 'string' ? callback(null, css) : callback(null)))
+  readFile(this.resourcePath, fileSystem)
+    .then((source) => preProcess(loaderContext, source))
+    .then(() => callback(null))
     .catch(callback)
 }
 
@@ -415,30 +407,33 @@ export const pitch: PluginLoader['pitch'] = function () {
 const varsLoader: PluginLoader = function (source, map, meta) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
-  const { isStylesheet, isThemeFile, syntaxPlugin } = data
-
-  if (!isStylesheet || (!isThemeFile && !data.uriMaps.get(resourcePath)!.size)) {
+  const { isStylesheet, isStyleModule, isThemeFile, syntaxPlugin } = data
+  if (!isStylesheet && !isStyleModule) {
     this.callback(null, source, map, meta)
     return
   }
-
   const callback = this.async() || (() => {})
-  postcss(getPluginsForNormalStage(loaderContext))
-    .process(source, {
+
+  ;(async () => {
+    source = Buffer.isBuffer(source) ? source.toString('utf8') : source
+    if (isStyleModule) {
+      await preProcess(loaderContext, source)
+    }
+    if (!isThemeFile && !data.uriMaps.get(resourcePath)!.size) {
+      callback(null, source, map, meta)
+      return
+    }
+    const plugins = getPluginsForNormalStage(loaderContext)
+    const result = await postcss(plugins).process(source, {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
       map: false,
     })
-    .then(({ css, root, messages, processor }) =>
-      callback(
-        null,
-        css,
-        undefined,
-        createASTMeta({ root, messages, version: processor.version }, meta)
-      )
-    )
-    .catch(callback)
+    const { css, root, messages, processor } = result
+    callback(null, css, map, createASTMeta({ root, messages, version: processor.version }, meta))
+    //
+  })().catch(callback)
 }
 
 varsLoader.filepath = __filename

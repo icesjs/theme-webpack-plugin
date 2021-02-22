@@ -5,7 +5,7 @@ import { PluginItem } from '@babel/core'
 import { DOMWindow } from 'jsdom'
 import { getHashDigest } from 'loader-utils'
 import { toAsyncFunction, toCallExpression } from './asyncConverter'
-import { ensureFileExtension, hasOwnProperty, trimUndefined } from './utils'
+import { ensureFileExtension, getQueryString, hasOwnProperty, trimUndefined } from './utils'
 
 type LoaderContext = import('webpack').loader.LoaderContext
 
@@ -278,7 +278,7 @@ function createModuleContext(
     {
       __webpack_public_path__: '/',
       __non_webpack_require__: require,
-      __resourceQuery: moduleId.replace(/^.*?(?=\?|$)/, ''),
+      __resourceQuery: getQueryString(moduleId),
       __webpack_require__: (req: string) => webpackRequireAsync.call(webpackModuleContext, req),
     },
     // 调用方自定义的上下文属性

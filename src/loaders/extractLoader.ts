@@ -40,7 +40,7 @@ function formatResourceFilter(
 ) {
   const { resourcePath } = loaderContext
   if (!resourceFilter) {
-    resourceFilter = /\.(?:png|bmp|gif|jpe?g|avif|svg|eot|woff|otf|ttf)$/i
+    resourceFilter = /\.(?:png|bmp|ico|gif|jpe?g|avif|svg|eot|woff|otf|ttf)$/i
   }
   return (file: string) => {
     if (resourceFilter instanceof RegExp) {

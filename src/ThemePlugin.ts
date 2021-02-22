@@ -1,3 +1,4 @@
+import * as path from 'path'
 import type {
   Compiler,
   Configuration,
@@ -9,13 +10,21 @@ import type {
   RuleSetUseItem,
 } from 'webpack'
 import { findLoader, hasRuleConditions, isCssRule } from '@ices/use-loader'
-import { themeRequestToken } from './lib/utils'
+import {
+  getQueryObject,
+  getQueryString,
+  isSamePath,
+  normalizeRelativePath,
+  normalModuleRegx,
+  themeRequestToken,
+} from './lib/utils'
 import { getOptions, PluginOptions, ValidPluginOptions } from './options'
 import { ThemeModule } from './ThemeModule'
 import varsLoader, { VarsLoaderOptions } from './loaders/varsLoader'
 import chunkLoader from './loaders/chunkLoader'
 import extractLoader from './loaders/extractLoader'
 import scopeLoader from './loaders/scopeLoader'
+import moduleLoader from './loaders/moduleLoader'
 
 type WebpackLoader = import('webpack').loader.Loader
 type WebpackLoaderContext = import('webpack').loader.LoaderContext
@@ -52,7 +61,7 @@ export type CompilerOptions = {
 }
 
 //
-class ThemeWebpackPlugin implements WebpackPlugin {
+class ThemePlugin implements WebpackPlugin {
   private readonly options: ValidPluginOptions
   private compilerOutput: CompilerOutput = {}
   private logger: Logger | null = null
@@ -65,10 +74,10 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   apply(compiler: Compiler) {
     const { options: compilerOptions } = compiler
     const { mode, output } = compilerOptions
-    const pluginName = ThemeWebpackPlugin.name
+    const pluginName = ThemePlugin.name
     const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
-
     this.compilerOutput = Object.assign({}, output)
+
     if (typeof compiler.getInfrastructureLogger === 'function') {
       this.logger = compiler.getInfrastructureLogger(pluginName)
     }
@@ -78,12 +87,61 @@ class ThemeWebpackPlugin implements WebpackPlugin {
     this.injectLoaderMethod(themeModule)
     this.applyVarsLoaders(compilerOptions)
 
+    compiler.hooks.normalModuleFactory.tap(pluginName, (factory) =>
+      factory.hooks.beforeResolve.tap(pluginName, (module) => this.resolveStyleModule(module))
+    )
     compiler.hooks.run.tapPromise(pluginName, async (compiler) =>
       themeModule.create(compiler.context || process.cwd(), false)
     )
     compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
       themeModule.create(compiler.context || process.cwd(), !isEnvProduction)
     )
+  }
+
+  // 是否处理style模块解析，该方法静态导出，如果有需要hack，可以覆写此方法自行定义
+  static shouldResolveStyleModule(resourcePath: string, resourceQuery: string) {
+    return resourceQuery && !normalModuleRegx.test(resourcePath)
+  }
+
+  // 解析style资源模块
+  private resolveStyleModule(module: any) {
+    const { isStyleModule } = this.options
+    let { request, context, contextInfo = {} } = module || {}
+    let resourcePath = request.split('!').pop()!.replace(/\?.*/, '')
+    const resourceQuery = getQueryString(request)
+    if (typeof context !== 'string') {
+      context = ''
+    }
+    if (context && !path.isAbsolute(resourcePath)) {
+      resourcePath = path.join(context, resourcePath)
+    }
+    const loaderPath = context
+      ? normalizeRelativePath(moduleLoader.filepath, context)
+      : moduleLoader.filepath
+    if (
+      typeof request !== 'string' ||
+      request
+        .split('!')
+        .slice(0, -1)
+        .some((file) => isSamePath(file.replace(/\?.*/, ''), loaderPath)) ||
+      !ThemePlugin.shouldResolveStyleModule(resourcePath, resourceQuery)
+    ) {
+      return
+    }
+    const res = isStyleModule({
+      query: getQueryObject(resourceQuery),
+      issuer: contextInfo?.issuer || '',
+      resourcePath,
+      resourceQuery,
+      request,
+      context,
+    })
+    if (!res) {
+      return
+    }
+    const syntax = typeof res === 'boolean' ? 'auto' : res
+    const options = [`syntax=${encodeURIComponent(syntax)}`]
+    module.request = `!!${loaderPath}?${options.join('&')}!${request}`
   }
 
   // 注入插件方法到内部loader
@@ -93,7 +151,7 @@ class ThemeWebpackPlugin implements WebpackPlugin {
       ['getPluginOptions', () => ({ ...this.options })],
       ['getCompilerOptions', () => ({ output: { ...this.compilerOutput } })],
     ]) {
-      for (const loader of [varsLoader, scopeLoader, extractLoader, chunkLoader]) {
+      for (const loader of [varsLoader, scopeLoader, extractLoader, chunkLoader, moduleLoader]) {
         ;(loader as any)[name as string] = method
       }
     }
@@ -168,10 +226,9 @@ class ThemeWebpackPlugin implements WebpackPlugin {
       syntax = 'css'
     }
 
-    const { onlyColor, cssModules, extract, themeAttrName } = this.options
+    const { onlyColor, extract, themeAttrName } = this.options
     const loaders: RuleSetUseItem[] = []
     const options = {
-      cssModules: cssModules === 'auto' ? isCssRule(rule, { onlyModule: true }) : cssModules,
       token: themeRequestToken,
       onlyColor,
       syntax,
@@ -193,4 +250,4 @@ class ThemeWebpackPlugin implements WebpackPlugin {
   }
 }
 
-export default ThemeWebpackPlugin
+export default ThemePlugin

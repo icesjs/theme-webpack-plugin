@@ -7,15 +7,15 @@ import {
   getASTFromMeta,
   getFileThemeName,
   getQueryObject,
-  getSyntaxPlugin,
   getSupportedSyntax,
+  getSyntaxPlugin,
   isStylesheet,
 } from '../lib/utils'
 
 const scopeLoader: PluginLoader = function (source, map, meta) {
   const { resourcePath, resourceQuery } = this
   const { token: queryToken } = getQueryObject(resourceQuery)
-  const { syntax: rawSyntax, token, onlyColor, themeAttrName = 'data-theme' } = (getOptions(
+  const { token, onlyColor, syntax: rawSyntax, themeAttrName = 'data-theme' } = (getOptions(
     this
   ) as unknown) as VarsLoaderOptions
   const syntax = getSupportedSyntax(rawSyntax)
@@ -38,7 +38,7 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
       to: resourcePath,
       map: false,
     })
-    .then(({ css }) => callback(null, css))
+    .then(({ css }) => callback(null, css, map, meta))
     .catch(callback)
 }
 

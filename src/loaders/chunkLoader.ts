@@ -58,7 +58,6 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
     0,
     // 这里的添加顺序不能错
     {
-      ident: 'file-loader',
       path: require.resolve('file-loader'),
       options: {
         esModule,
@@ -66,19 +65,15 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
         publicPath,
         name: filename,
       },
+      ident: 'file-loader',
     },
     {
       // 使用自己实现的css资源抽取loader
-      ident: 'extract-css-loader',
       path: extractLoader.filepath,
+      options: {},
+      ident: 'extract-theme-css-loader',
     }
   )
-}
-
-// 获取转发请求的资源路径
-function getThemeResource(loaderContext: LoaderContext) {
-  const { resourcePath, resourceQuery } = loaderContext
-  return stringifyRequest(loaderContext, __filename + '!' + resourcePath + resourceQuery)
 }
 
 export const pitch: PluginLoader['pitch'] = function () {
@@ -89,7 +84,7 @@ export const pitch: PluginLoader['pitch'] = function () {
     // 首次由主题模块请求进入
     // 模块默认导出的是通过file-loader发布资源后的资源路径
     // 变量的抽取将由vars-loader处理
-    const resource = getThemeResource(this)
+    const resource = stringifyRequest(this, __filename + '!' + this.resource)
     const imports = esModule
       ? `import cssPath from ${resource}`
       : `const cssPath = require(${resource})`
@@ -104,9 +99,9 @@ export const pitch: PluginLoader['pitch'] = function () {
   }
 }
 
-const chunkLoader: PluginLoader = function (source, map) {
+const chunkLoader: PluginLoader = function (source, map, meta) {
   // 因为对于当前请求，我们是两次进入chunk-loader，所以在normal阶段我们需要返回模块内容
-  this.callback(null, source, map)
+  this.callback(null, source, map, meta)
 }
 
 chunkLoader.filepath = __filename
