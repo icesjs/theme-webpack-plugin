@@ -1,3 +1,9 @@
+## [1.2.2](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.1...v1.2.2) (2021-02-22)
+
+### Bug Fixes
+
+- fix bug of css customize property will not apply theme variables ([9fcb163](https://github.com/icesjs/theme-webpack-plugin/commit/9fcb1633789e8cfff39d1615a2f773a0b8b35387))
+
 ## [1.2.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.0...v1.2.1) (2021-02-22)
 
 ### Bug Fixes
