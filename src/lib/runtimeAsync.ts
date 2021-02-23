@@ -121,6 +121,7 @@ function activateTheme(name: string, href: string) {
 function defineTheme(name: string, href: string) {
   var activated = false
   var activate = function () {
+    activated = name === defaultThemeName
     return activateTheme(name, href).then(function (deactivate: Function) {
       activated = true
       deactivate(function () {

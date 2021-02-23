@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import globby from 'globby'
+import { getHashDigest } from 'loader-utils'
 import { getFileThemeName, isSamePath, isStylesheet, themeRequestToken } from './lib/utils'
 import { resolveDefaultExportPath, ValidPluginOptions } from './options'
 import chunkLoader from './loaders/chunkLoader'
@@ -9,6 +10,8 @@ type Logger = import('webpack').Logger
 
 export class ThemeModule {
   readonly themeFiles = new Set<string>()
+  private fileContentHash = ''
+
   constructor(readonly options: ValidPluginOptions, readonly logger: Logger | null) {
     this.reset()
   }
@@ -28,13 +31,7 @@ export class ThemeModule {
     const validDefaultTheme = this.getValidDefaultTheme(themeFiles, defaultTheme)
     const code = this.generateCode(themeFiles, validDefaultTheme, hot)
 
-    try {
-      // 异步写入时，可能还未写入完成，就被构建器读取解析，造成错误
-      fs.writeFileSync(themeExportPath, code)
-    } catch (err) {
-      this.themeFiles.clear()
-      throw err
-    }
+    this.writeFile(themeExportPath, code)
   }
 
   // 重置主题模块
@@ -45,10 +42,27 @@ export class ThemeModule {
 var themes = []
 ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
 
-    fs.writeFileSync(themeExportPath, content)
+    this.fileContentHash = ''
+    this.writeFile(themeExportPath, content)
 
     if (!isSamePath(themeExportPath, defaultExportPath)) {
-      fs.writeFileSync(defaultExportPath, content)
+      this.fileContentHash = ''
+      this.writeFile(defaultExportPath, content)
+    }
+  }
+
+  // 写入主题模块
+  private writeFile(filepath: string, content: string) {
+    const hash = getHashDigest(Buffer.from(content), 'md4', 'hex', 32)
+    if (this.fileContentHash !== hash) {
+      try {
+        fs.writeFileSync(filepath, content)
+        this.fileContentHash = hash
+      } catch (err) {
+        this.fileContentHash = ''
+        this.themeFiles.clear()
+        throw err
+      }
     }
   }
 
@@ -58,7 +72,7 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
     const patterns = (Array.isArray(themes) ? themes : [themes]).map((file) =>
       file.replace(/\\/g, '/')
     )
-    return (
+    const files = (
       await globby(patterns, {
         cwd: context,
         absolute: true,
@@ -77,6 +91,28 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
         return isStylesheet(file)
       })
       .sort()
+
+    const names = new Map<string, string>()
+
+    for (const file of files) {
+      const name = getFileThemeName(file)
+      if (names.has(name)) {
+        const cwd = process.cwd()
+        throw new Error(
+          `Cannot use the theme files with the same base name: "${path.relative(
+            cwd,
+            names.get(name)!
+          )}"、"${path.relative(cwd, file)}"`
+        )
+      }
+      names.set(name, file)
+    }
+
+    if (!files.length && this.logger) {
+      this.logger.info(`Not found any theme by pattern: ${JSON.stringify(patterns)}`)
+    }
+
+    return files
   }
 
   // 获取有效的默认主题
@@ -89,7 +125,7 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
     } else {
       validTheme = ''
     }
-    if (this.logger && (!validTheme || validTheme !== defaultTheme)) {
+    if (this.logger && themeFiles.length && (!validTheme || validTheme !== defaultTheme)) {
       this.logger.warn(`Not found the default theme named by '${defaultTheme}'`)
       if (validTheme) {
         this.logger.warn(`The theme named by '${validTheme}' will be used as the default`)

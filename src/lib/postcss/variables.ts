@@ -65,7 +65,7 @@ export type VariablesContainer = {
 export function makeVariableIdent(name: string) {
   let ident = `--${name.replace(/[^-\w]/g, '') || 'var'}`
   ident += `-${getHashDigest(Buffer.from(name), 'md4', 'hex', 4)}`
-  if (process.env.NODE_ENV !== 'development') {
+  if (process.env.THEME_VARS_IDENT_MODE !== 'development') {
     ident = `--${getHashDigest(Buffer.from(ident), 'md4', 'hex', 6)}`
   }
   return ident

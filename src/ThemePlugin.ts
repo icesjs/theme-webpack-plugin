@@ -77,7 +77,9 @@ class ThemePlugin implements WebpackPlugin {
     const { options: compilerOptions } = compiler
     const { mode, output } = compilerOptions
     const pluginName = ThemePlugin.name
-    const isEnvProduction = mode !== 'development' || process.env.NODE_ENV !== 'development'
+    const isEnvDevelopment = mode === 'development' || process.env.NODE_ENV === 'development'
+    process.env.THEME_VARS_IDENT_MODE = isEnvDevelopment ? 'development' : 'production'
+
     this.compilerOutput = Object.assign({}, output)
 
     if (typeof compiler.getInfrastructureLogger === 'function') {
@@ -96,7 +98,7 @@ class ThemePlugin implements WebpackPlugin {
       themeModule.create(compiler.context || process.cwd(), false)
     )
     compiler.hooks.watchRun.tapPromise(pluginName, async (compiler) =>
-      themeModule.create(compiler.context || process.cwd(), !isEnvProduction)
+      themeModule.create(compiler.context || process.cwd(), isEnvDevelopment)
     )
     compiler.hooks.thisCompilation.tap(pluginName, (compilation) => {
       compilation.hooks.afterOptimizeModules.tap(pluginName, (modules) =>
@@ -167,12 +169,13 @@ class ThemePlugin implements WebpackPlugin {
 
   // 检查是否导入了主题模块
   private checkImportedThemes(modules: CompilationModule[], themeModule: ThemeModule) {
-    if (!this.logger) {
+    const { themeFiles } = themeModule
+    if (!this.logger || !themeFiles.size) {
       return
     }
     let noThemes = true
     for (const module of modules) {
-      if (themeModule.themeFiles.has(trimQueryString((module as any).resource))) {
+      if (themeFiles.has(trimQueryString((module as any).resource))) {
         noThemes = false
         break
       }
@@ -231,7 +234,10 @@ class ThemePlugin implements WebpackPlugin {
     )
     // 重设css-loader的importLoaders值
     for (const { siblings, index } of findLoader(compilerOptions, 'css-loader')) {
-      const loader = siblings[index] as RuleSetLoader
+      let loader = siblings[index] as string | RuleSetLoader
+      if (typeof loader === 'string') {
+        loader = siblings[index] = { loader }
+      }
       loader.options = Object.assign({}, loader.options, {
         importLoaders: siblings.length - index - 1,
       })

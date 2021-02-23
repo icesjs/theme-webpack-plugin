@@ -263,9 +263,8 @@ function getCommonPlugins(
 
 // 获取配置对象
 function getLoaderOptions(loaderContext: WebpackLoaderContext) {
-  const { ...options } = getOptions(loaderContext) as any
-  options.syntax = getSupportedSyntax(options.syntax)
-  return options as VarsLoaderOptions
+  const options = getOptions(loaderContext) as any
+  return { ...options, syntax: getSupportedSyntax(options.syntax) } as VarsLoaderOptions
 }
 
 // 获取pitch阶段的处理插件

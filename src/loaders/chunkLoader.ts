@@ -1,6 +1,11 @@
 import { stringifyRequest } from 'loader-utils'
 import { selfModuleName } from '../lib/selfContext'
-import { isFromModule } from '../lib/resolve'
+import {
+  addLoadersAfter,
+  fixResolvedCssLoaderOptions,
+  isFromModule,
+  removeLoader,
+} from '../lib/utils'
 import { PluginLoader } from '../ThemePlugin'
 import { ValidPluginOptions } from '../options'
 import extractLoader from './extractLoader'
@@ -10,11 +15,11 @@ type LoaderContext = import('webpack').loader.LoaderContext
 // 清理不需要的loader
 function clearLoaders(loaderContext: LoaderContext) {
   const { loaders } = loaderContext
-  for (const loader of [...loaders]) {
+  for (const [index, loader] of Object.entries(loaders)) {
     if (typeof loader !== 'object') {
       continue
     }
-    const { path: loaderPath } = loader
+    const { path: loaderPath, ident } = loader
     if (
       // 这些extract相关的loader提供的API要么不适合当前需求，要么过期不维护，要么有bug
       isFromModule('mini-css-extract-plugin', loaderPath) ||
@@ -29,34 +34,20 @@ function clearLoaders(loaderContext: LoaderContext) {
       // 先清除已使用的file-loader，后面我们再添加
       isFromModule('file-loader', loaderPath)
     ) {
-      loaders.splice(loaders.indexOf(loader), 1)
+      removeLoader(loaderContext, ident || +index)
     }
   }
 }
 
 // 检查并设置相应loader
 function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPluginOptions) {
-  const { loaders } = loaderContext
+  const { loaders, loaderIndex } = loaderContext
+  const { esModule, publicPath, outputPath, filename } = pluginOptions
+  const currentLoader = loaders[loaderIndex]
 
   clearLoaders(loaderContext)
 
-  for (const [index, loader] of Object.entries(loaders)) {
-    if (isFromModule('css-loader', loader.path)) {
-      const options = loader.options || loader.query
-      if (typeof options === 'object') {
-        // 修正下css-loader的参数
-        options.importLoaders = loaders.length - Number(index) - 1
-        break
-      }
-    }
-  }
-
-  const { esModule, publicPath, outputPath, filename } = pluginOptions
-  // 添加loader
-  loaders.splice(
-    1, // 0号索引为当前chunk-loader，我们添加新loader到当前loader的后面
-    0,
-    // 这里的添加顺序不能错
+  addLoadersAfter(loaderContext, currentLoader.ident || +loaderIndex, [
     {
       path: require.resolve('file-loader'),
       options: {
@@ -72,8 +63,10 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
       path: extractLoader.filepath,
       options: {},
       ident: 'extract-theme-css-loader',
-    }
-  )
+    },
+  ])
+
+  fixResolvedCssLoaderOptions(loaders)
 }
 
 export const pitch: PluginLoader['pitch'] = function () {

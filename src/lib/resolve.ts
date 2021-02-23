@@ -76,19 +76,6 @@ export function getModuleFromCache(name: string) {
   return modules
 }
 
-export function isFromModule(name: string | RegExp, file: string) {
-  const context = getContextFromFile(file)
-  if (context) {
-    try {
-      const moduleName = require(path.join(context, 'package.json')).name
-      return name instanceof RegExp ? name.test(moduleName) : name === moduleName
-    } catch (e) {
-      return false
-    }
-  }
-  return false
-}
-
 export function resolveCachedModulePath(name: string, paths = [process.cwd()]) {
   for (const [id] of getModuleFromCache(name)) {
     if (containFile(paths, id)) {

@@ -1,7 +1,8 @@
 import * as fs from 'fs'
-import * as path from 'path'
+import path from 'path'
 import { parseQuery } from 'loader-utils'
 import type { Message, Root, Syntax } from 'postcss'
+import { getContextFromFile } from './selfContext'
 
 const astSymbol = Symbol('ThemeLoaderAstMeta')
 
@@ -11,6 +12,8 @@ type PostcssASTMeta = {
   root?: Root
   version?: string
 }
+
+type LoaderContext = import('webpack').loader.LoaderContext
 
 export type SupportedSyntax = 'scss' | 'sass' | 'less' | 'css'
 
@@ -215,4 +218,59 @@ export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
     }
   }
   return plugin
+}
+
+// 判断某个文件是否来源于某个模块
+export function isFromModule(name: string | RegExp, file: string) {
+  const context = getContextFromFile(file)
+  if (context) {
+    try {
+      const moduleName = require(path.join(context, 'package.json')).name
+      return name instanceof RegExp ? name.test(moduleName) : name === moduleName
+    } catch (e) {
+      return false
+    }
+  }
+  return false
+}
+
+// 添加新的loader
+export function addLoadersAfter(
+  loaderContext: LoaderContext,
+  ident: string | number,
+  newLoaders: any[]
+) {
+  const { loaders, _module } = loaderContext
+  for (const loaderList of [loaders, _module.loaders] as any[][]) {
+    const index =
+      typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
+    if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
+      loaderList.splice(index + 1, 0, ...newLoaders)
+    }
+  }
+}
+
+// 移除已经存在的loader
+export function removeLoader(loaderContext: LoaderContext, ident: string | number) {
+  const { loaders, _module } = loaderContext
+  for (const loaderList of [loaders, _module.loaders] as any[][]) {
+    const index =
+      typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
+    if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
+      loaderList.splice(index, 1)
+    }
+  }
+}
+
+// 修正下css-loader的参数
+export function fixResolvedCssLoaderOptions(resolvedLoaders: any[]) {
+  for (const [index, loader] of Object.entries(resolvedLoaders)) {
+    if (isFromModule('css-loader', loader.path)) {
+      const options = loader.options || loader.query
+      if (typeof options === 'object') {
+        options.importLoaders = resolvedLoaders.length - Number(index) - 1
+        break
+      }
+    }
+  }
 }
