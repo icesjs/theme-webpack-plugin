@@ -210,7 +210,19 @@ export function trimQueryString(filepath: any) {
 
 // 获取语法解析插件
 export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
-  let plugin = require(`postcss-${syntax === 'css' ? 'safe-parser' : syntax}`)
+  let parserName
+  switch (syntax) {
+    case 'less':
+      parserName = 'less'
+      break
+    case 'sass':
+    case 'scss':
+      parserName = 'scss'
+      break
+    default:
+      parserName = 'safe-parser'
+  }
+  let plugin = require(`postcss-${parserName}`)
   if (typeof plugin === 'function') {
     plugin = {
       parse: plugin,
@@ -234,32 +246,39 @@ export function isFromModule(name: string | RegExp, file: string) {
   return false
 }
 
+function modifyLoaders(
+  loaderContext: LoaderContext,
+  ident: string | number,
+  handler: (loaderList: any[], index: number) => void
+) {
+  const { loaders, _module } = loaderContext
+  for (const loaderList of new Set([loaders, _module?.loaders]) as Set<any[] | undefined>) {
+    if (loaderList) {
+      const index =
+        typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
+      if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
+        handler(loaderList, index)
+      }
+    }
+  }
+}
+
 // 添加新的loader
 export function addLoadersAfter(
   loaderContext: LoaderContext,
   ident: string | number,
   newLoaders: any[]
 ) {
-  const { loaders, _module } = loaderContext
-  for (const loaderList of [loaders, _module.loaders] as any[][]) {
-    const index =
-      typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
-    if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
-      loaderList.splice(index + 1, 0, ...newLoaders)
-    }
-  }
+  modifyLoaders(loaderContext, ident, (loaderList, index) => {
+    loaderList.splice(index + 1, 0, ...newLoaders)
+  })
 }
 
 // 移除已经存在的loader
 export function removeLoader(loaderContext: LoaderContext, ident: string | number) {
-  const { loaders, _module } = loaderContext
-  for (const loaderList of [loaders, _module.loaders] as any[][]) {
-    const index =
-      typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
-    if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
-      loaderList.splice(index, 1)
-    }
-  }
+  modifyLoaders(loaderContext, ident, (loaderList, index) => {
+    loaderList.splice(index, 1)
+  })
 }
 
 // 修正下css-loader的参数

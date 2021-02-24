@@ -136,36 +136,25 @@ function transformCode(originalCode: string, filename: string, plugins: PluginIt
 }
 
 // 获取代码转换插件
-function getTransformPlugin(webpackModule?: VirtualWebpackModule) {
-  const plugin = [toAsyncFunction(['require', '__webpack_require__', '__webpack_public_path__'])]
+function getTransformPlugins(webpackModule?: VirtualWebpackModule) {
+  const plugins = [toAsyncFunction(['require', '__webpack_require__', '__webpack_public_path__'])]
   if (webpackModule) {
     const { __webpack_public_path__, module } = webpackModule
     if (typeof __webpack_public_path__ === 'function') {
       // 添加toAsyncFunction插件前面先处理
-      plugin.unshift(toCallExpression('__webpack_public_path__', [module?.id || '']))
+      plugins.unshift(toCallExpression('__webpack_public_path__', [module?.id || '']))
     }
   }
-  return plugin
+  return plugins
 }
 
 // 获取待运行的脚本代码
 function getScriptCode(originalCode: string | [string, any]) {
-  let script
-  let injectScript
-  let isInjectFunction
-  if (Array.isArray(originalCode)) {
-    script = originalCode[0]
-    injectScript = String(originalCode[1])
-    isInjectFunction = typeof originalCode[1] === 'function'
-  } else {
-    script = originalCode
-    injectScript = ''
-    isInjectFunction = false
-  }
+  const [script, injectScript] = Array.isArray(originalCode) ? originalCode : [originalCode, '']
   return [
     script,
     injectScript
-      ? isInjectFunction
+      ? typeof injectScript === 'function'
         ? `;(await (${injectScript})());`
         : `;(await (()=>{\n${injectScript}\n})());`
       : '',
@@ -191,7 +180,7 @@ async function evalModuleCode(
     code = transformCode(
       `;(async ()=>{\n${commonjs}\n${inject}\n})().then(()=>module);`,
       filename,
-      getTransformPlugin(webpackModule)
+      getTransformPlugins(webpackModule)
     )
     babelCodeCache.set(hash, code)
   }
