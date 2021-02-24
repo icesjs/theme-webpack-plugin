@@ -145,11 +145,16 @@ function injectScript() {
   // 这里是虚拟机内的运行环境，模拟的浏览器运行时
   // 可访问当前处理模块的webpack模块上下文，以及window对象等
   return `
+    // 主要是处理 style-loader 或 vue-style-loader 的导出内容
+
     const exports = module.exports
     const defaultExport = exports && exports.__esModule ? exports.default : exports
-    if (!Array.isArray(defaultExport) && typeof content !== 'undefined' && Array.isArray(content)) {
-      module.exports = content
-      module.exports.__originalExports = exports
+    if (!Array.isArray(defaultExport) && typeof content !== 'undefined') {
+      const defaultContent = content.__esModule ? content.default : content
+      if (Array.isArray(defaultContent)) {
+        module.exports = defaultContent
+        module.exports.__originalExports = exports
+      }
     }
   `
 }

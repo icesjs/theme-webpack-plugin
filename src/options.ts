@@ -320,7 +320,7 @@ export function getOptions(opts?: PluginOptions) {
       themeExportPath: defaultExportPath,
       defaultTheme: 'default',
       onlyColor: true,
-      filename: '[name].[contenthash:8].chunk.css',
+      filename: '[name].[contenthash:8].css',
       outputPath: 'themes',
       esModule: true,
       extract: true,

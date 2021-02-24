@@ -4,6 +4,7 @@ import {
   addLoadersAfter,
   fixResolvedCssLoaderOptions,
   isFromModule,
+  isSamePath,
   removeLoader,
 } from '../lib/utils'
 import { PluginLoader } from '../ThemePlugin'
@@ -31,8 +32,9 @@ function clearLoaders(loaderContext: LoaderContext) {
       isFromModule('resolve-url-loader', loaderPath) ||
       // 我们不需要style-loader将样式转换为js模块
       isFromModule('style-loader', loaderPath) ||
-      // 先清除已使用的file-loader，后面我们再添加
-      isFromModule('file-loader', loaderPath)
+      // 先清除，后面再添加
+      isFromModule('file-loader', loaderPath) ||
+      isSamePath(extractLoader.filepath, loaderPath)
     ) {
       removeLoader(loaderContext, ident || +index)
     }
@@ -66,7 +68,7 @@ function checkAndSetLoader(loaderContext: LoaderContext, pluginOptions: ValidPlu
     },
   ])
 
-  fixResolvedCssLoaderOptions(loaders)
+  fixResolvedCssLoaderOptions(loaderContext)
 }
 
 export const pitch: PluginLoader['pitch'] = function () {

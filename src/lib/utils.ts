@@ -246,18 +246,31 @@ export function isFromModule(name: string | RegExp, file: string) {
   return false
 }
 
-function modifyLoaders(
+// 查找loader
+function findLoader(
   loaderContext: LoaderContext,
-  ident: string | number,
-  handler: (loaderList: any[], index: number) => void
+  ident: string | number | ((loader: any, index: number, loaders: any[]) => boolean),
+  handler: (loaderList: any[], index: number, fromModule: boolean) => void
 ) {
   const { loaders, _module } = loaderContext
+  // 这里在_module.loaders里面查找的原因是，webpack5在NormalModule上面添加了getCurrentLoader方法，loader上新增了getOptions方法，
+  // getOptions方法会调用NormalModule上的getCurrentLoader，getCurrentLoader依赖NormalModule上保存的loaders数组，
+  // 而loaders在pitch阶段是会可能被修改的，NormalModule上保存的loaders与
+  // loaderContext里面保存的loaders与NormalModule上保存的loaders不是同一个数组引用，其值是从NormalModule上计算得来的，
+  // 新版的getOptions却从NormalModule上去取loaders来获取当前loaderContext中的当前loader，这是不正确的
+  // 这是webpack5的一个bug
   for (const loaderList of new Set([loaders, _module?.loaders]) as Set<any[] | undefined>) {
     if (loaderList) {
-      const index =
-        typeof ident === 'string' ? loaderList.findIndex((loader) => loader.ident === ident) : ident
+      let index
+      if (typeof ident === 'string' || typeof ident === 'function') {
+        index = loaderList.findIndex(
+          typeof ident === 'function' ? ident : (loader) => loader.ident === ident
+        )
+      } else {
+        index = ident
+      }
       if (!Number.isNaN(index) && index > -1 && index < loaderList.length) {
-        handler(loaderList, index)
+        handler(loaderList, index, loaderList === _module?.loaders)
       }
     }
   }
@@ -269,27 +282,36 @@ export function addLoadersAfter(
   ident: string | number,
   newLoaders: any[]
 ) {
-  modifyLoaders(loaderContext, ident, (loaderList, index) => {
-    loaderList.splice(index + 1, 0, ...newLoaders)
+  findLoader(loaderContext, ident, (loaderList, index, fromModule) => {
+    loaderList.splice(
+      index + 1,
+      0,
+      ...newLoaders.map(({ path, ...rest }) => ({
+        [fromModule ? 'loader' : 'path']: path,
+        ...rest,
+      }))
+    )
   })
 }
 
 // 移除已经存在的loader
 export function removeLoader(loaderContext: LoaderContext, ident: string | number) {
-  modifyLoaders(loaderContext, ident, (loaderList, index) => {
+  findLoader(loaderContext, ident, (loaderList, index) => {
     loaderList.splice(index, 1)
   })
 }
 
 // 修正下css-loader的参数
-export function fixResolvedCssLoaderOptions(resolvedLoaders: any[]) {
-  for (const [index, loader] of Object.entries(resolvedLoaders)) {
-    if (isFromModule('css-loader', loader.path)) {
+export function fixResolvedCssLoaderOptions(loaderContext: LoaderContext) {
+  findLoader(
+    loaderContext,
+    ({ path, loader }) => loader === 'css-loader' || isFromModule('css-loader', path || loader),
+    (loaderList, index) => {
+      const loader = loaderList[index]
       const options = loader.options || loader.query
       if (typeof options === 'object') {
-        options.importLoaders = resolvedLoaders.length - Number(index) - 1
-        break
+        options.importLoaders = loaderList.length - Number(index) - 1
       }
     }
-  }
+  )
 }
