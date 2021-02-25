@@ -2,11 +2,11 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { validate } from 'schema-utils'
 import { Schema } from 'schema-utils/declarations/validate'
-import { selfModuleName } from './lib/selfContext'
+import { selfContext, selfModuleName } from './lib/selfContext'
 import { resolveModulePath } from './lib/resolve'
 import { ensureFileExtension, isStylesheet, trimUndefined } from './lib/utils'
 
-const defaultExportPath = '@ices/theme/dist/theme.js'
+const defaultExportPath = '@ices/theme/dist/theme'
 
 export interface PluginOptions {
   /**
@@ -343,7 +343,7 @@ export function getOptions(opts?: PluginOptions) {
 // 获取默认的导出路径
 export function resolveDefaultExportPath() {
   try {
-    return resolveModulePath(defaultExportPath, [fs.realpathSync(process.cwd())])
+    return resolveModulePath(defaultExportPath, [fs.realpathSync(process.cwd()), selfContext])
   } catch (e) {
     throw new Error(
       'There are no installed theme lib, please install "@ices/theme" first or set the option of "themeExportPath" to a customize theme module export path'

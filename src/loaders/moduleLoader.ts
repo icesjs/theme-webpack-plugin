@@ -63,11 +63,16 @@ function clearLoaders(loaderContext: LoaderContext) {
 function getPreprocessorLoaderIndex(loaderContext: LoaderContext, options: LoaderOptions) {
   const { loaders } = loaderContext
   const { syntax } = options
-  const matchLoaderRegx = new RegExp(
-    String.raw`^(?:postcss|${
-      syntax === 'auto' ? 'less|s[ac]ss|css' : escapeRegExpChar(syntax || 'css')
-    })-loader$`
-  )
+  let matchLoaderRegx
+  if (!syntax || syntax === 'auto') {
+    matchLoaderRegx = /^(?:less|s[ac]ss|postcss|css)-loader$/
+  } else {
+    matchLoaderRegx = new RegExp(
+      String.raw`^(?:${
+        /^s[ac]ss$/.test(syntax) ? 's[ac]ss' : escapeRegExpChar(syntax)
+      }|postcss|css)-loader$`
+    )
+  }
   let index = loaders.length
   while (--index > -1) {
     if (isFromModule(matchLoaderRegx, loaders[index].path)) {

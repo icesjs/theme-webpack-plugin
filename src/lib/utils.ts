@@ -213,16 +213,18 @@ export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
   let parserName
   switch (syntax) {
     case 'less':
-      parserName = 'less'
+      parserName = 'postcss-less'
       break
     case 'sass':
+      parserName = 'sugarss'
+      break
     case 'scss':
-      parserName = 'scss'
+      parserName = 'postcss-scss'
       break
     default:
-      parserName = 'safe-parser'
+      parserName = 'postcss-safe-parser'
   }
-  let plugin = require(`postcss-${parserName}`)
+  let plugin = require(parserName)
   if (typeof plugin === 'function') {
     plugin = {
       parse: plugin,
@@ -253,12 +255,7 @@ function findLoader(
   handler: (loaderList: any[], index: number, fromModule: boolean) => void
 ) {
   const { loaders, _module } = loaderContext
-  // 这里在_module.loaders里面查找的原因是，webpack5在NormalModule上面添加了getCurrentLoader方法，loader上新增了getOptions方法，
-  // getOptions方法会调用NormalModule上的getCurrentLoader，getCurrentLoader依赖NormalModule上保存的loaders数组，
-  // 而loaders在pitch阶段是会可能被修改的，NormalModule上保存的loaders与
-  // loaderContext里面保存的loaders与NormalModule上保存的loaders不是同一个数组引用，其值是从NormalModule上计算得来的，
-  // 新版的getOptions却从NormalModule上去取loaders来获取当前loaderContext中的当前loader，这是不正确的
-  // 这是webpack5的一个bug
+  //
   for (const loaderList of new Set([loaders, _module?.loaders]) as Set<any[] | undefined>) {
     if (loaderList) {
       let index
