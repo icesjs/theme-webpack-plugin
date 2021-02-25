@@ -1,3 +1,14 @@
+## [1.2.3](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.1...v1.2.3) (2021-02-25)
+
+### Bug Fixes
+
+- fix bug of css customize property will not apply theme variables ([9fcb163](https://github.com/icesjs/theme-webpack-plugin/commit/9fcb1633789e8cfff39d1615a2f773a0b8b35387))
+- remove postcss-sass parser that not compatible for postcss8 ([16fe479](https://github.com/icesjs/theme-webpack-plugin/commit/16fe47945ca7dd11a11992d78f10bc82a6b7ad03))
+
+### Features
+
+- make compatible with webpack5 ([070f234](https://github.com/icesjs/theme-webpack-plugin/commit/070f2347cfcd4837ce579dc4558dbc0f932b663f))
+
 ## [1.2.2](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.1...v1.2.2) (2021-02-22)
 
 ### Bug Fixes
