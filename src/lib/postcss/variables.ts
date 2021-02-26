@@ -1,4 +1,4 @@
-import { AtRule, Declaration, Root } from 'postcss'
+import { AtRule, Declaration, Root, Source } from 'postcss'
 import valueParser from 'postcss-value-parser'
 import { getHashDigest } from 'loader-utils'
 import { isTopRootRule } from './assert'
@@ -11,6 +11,7 @@ export interface ThemeVarsMessage {
     | 'theme-context-vars' // 当前文件中声明的本地变量
     | 'theme-url-vars' // 导入文件中的url地址变量
     | 'theme-prop-vars' // 从属性值中分离出的主题变量引用
+    | 'theme-custom-prop' // 不能作为主题变量的css自定义变量
 
   ident: string // 属性名hash标识名
   originalName: string // 属性原始名称
@@ -19,6 +20,7 @@ export interface ThemeVarsMessage {
   isRootDecl: boolean // 是否是:root{}下的属性声明
   parsed: boolean // 是否已处理值解析
   dependencies?: VarsDependencies // 依赖的变量
+  source?: Source // 来源属性声明的source字段，用于sourceMap关联
   from?: string // 来源文件路径
   data?: any // 额外的数据
 }
@@ -49,6 +51,7 @@ type VariablesDecl = {
   isRootDecl: boolean
   dependencies: VarsDependencies
   decl: Declaration
+  rawNode: Declaration | AtRule
   from: string | undefined
   parsed: boolean
 }
@@ -68,7 +71,8 @@ export function makeVariableIdent(name: string) {
   if (process.env.THEME_VARS_IDENT_MODE !== 'development') {
     ident = `--${getHashDigest(Buffer.from(ident), 'md4', 'hex', 6)}`
   }
-  return ident
+  // 如果--var变量第一个字符是个数字，sass解析器会抛错
+  return ident.replace(/^--\d/, '--v')
 }
 
 // 将变量消息转换为变量字典
@@ -124,7 +128,8 @@ export function getTopScopeVariables(
   root: Root,
   regExps: ThemePropertyMatcher,
   filter?: null | ((decl: Declaration, isRootDecl: boolean) => boolean),
-  normalize = true
+  normalize = true,
+  persistRawNode = false
 ) {
   const variables: VariablesContext = new Map()
   if (typeof filter !== 'function') {
@@ -148,13 +153,13 @@ export function getTopScopeVariables(
       }
       const varNode = decl as Declaration
       if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
-        addTopScopeVariable(variables, varNode, root, false)
+        addTopScopeVariable(variables, varNode, root, false, persistRawNode ? node : undefined)
       }
     } else if (isTopRootRule(node)) {
       // :root {--prop: value}
       for (const rNode of node.nodes) {
         if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
-          addTopScopeVariable(variables, rNode, root, true)
+          addTopScopeVariable(variables, rNode, root, true, persistRawNode ? rNode : undefined)
         }
       }
     }
@@ -167,7 +172,8 @@ function addTopScopeVariable(
   variables: VariablesContext,
   varDecl: Declaration,
   root: Root,
-  isRootDecl: boolean
+  isRootDecl: boolean,
+  rawNode?: Declaration | AtRule
 ) {
   variables.set(varDecl.prop, {
     ident: makeVariableIdent(varDecl.prop),
@@ -177,6 +183,7 @@ function addTopScopeVariable(
     originalValue: varDecl.value,
     isRootDecl,
     decl: varDecl,
+    rawNode,
     from: varDecl.source?.input.file || root.source?.input.file,
     parsed: false,
   } as VariablesDecl)

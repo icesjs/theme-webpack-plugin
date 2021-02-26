@@ -1,8 +1,8 @@
 import * as path from 'path'
 import valueParser from 'postcss-value-parser'
 import { Node } from 'postcss'
-import { hasResourceURL } from './assert'
-import { getTopScopeVariables, toVarsDict, VarsDictItem } from './variables'
+import { hasResourceURL, isTopRootRule } from './assert'
+import { getTopScopeVariables, toVarsDict } from './variables'
 import {
   ExtendPluginOptions,
   ExtendType,
@@ -16,35 +16,24 @@ import {
   setVarsMessage,
 } from './tools'
 import {
+  CustomPropsDictItem,
   determineCanUseAsThemeVarsByValue,
   getDeclProcessor,
   getThemeScopeProcessor,
 } from './process'
-import { addTitleComment, createDeclarations, createRootRule, createVarsRootRule } from './helpers'
+import { addTitleComment, insertVarsRootRule } from './helpers'
+import { ChildNode } from 'postcss/lib/node'
 
 // 消息 theme-vars 、 theme-root-vars
 export function defineThemeVariablesPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps, onlyColor }) => ({
     OnceExit: async (root, helper) => {
       const variables = getTopScopeVariables(root, regExps)
-      for (const { decl, value, isRootDecl, ...rest } of variables.values()) {
+      for (const { value, isRootDecl, ...rest } of variables.values()) {
         if (determineCanUseAsThemeVarsByValue(value, onlyColor)) {
           const type = isRootDecl ? 'theme-root-vars' : 'theme-vars'
           setVarsMessage({ ...rest, value, isRootDecl, helper, type })
         }
-      }
-    },
-  }))
-}
-
-// 消息 theme-vars、theme-root-vars
-export function defineTopScopeVarsPlugin(options: PluginOptions) {
-  return pluginFactory(options, ({ regExps }) => ({
-    OnceExit: async (root, helper) => {
-      for (const vars of getTopScopeVariables(root, regExps).values()) {
-        const { decl, isRootDecl, ...rest } = vars
-        const type = isRootDecl ? 'theme-root-vars' : 'theme-vars'
-        setVarsMessage({ ...rest, isRootDecl, helper, type })
       }
     },
   }))
@@ -55,9 +44,8 @@ export function defineContextVarsPlugin(options: PluginOptions) {
   return pluginFactory(options, ({ regExps }) => ({
     Once: async (root, helper) => {
       // 这里不对值进行引用解析，是因为此时并不知道上下文中所有可用的变量
-      const vars = getTopScopeVariables(root, regExps, null, false)
-      for (const { decl, ...rest } of vars.values()) {
-        setVarsMessage({ ...rest, helper, type: 'theme-context-vars' })
+      for (const vars of getTopScopeVariables(root, regExps, null, false).values()) {
+        setVarsMessage({ ...vars, helper, type: 'theme-context-vars' })
       }
     },
   }))
@@ -94,7 +82,7 @@ export function defineURLVarsPlugin(options: PluginOptions) {
         return
       }
       for (const vars of getTopScopeVariables(root, regExps).values()) {
-        const { decl, value, from, ...rest } = vars
+        const { value, from, ...rest } = vars
         if (!hasResourceURL(value)) {
           continue
         }
@@ -120,8 +108,28 @@ export function replaceWithThemeVarsPlugin(
 ) {
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
     OnceExit: async (root, helper) => {
+      const { vars } = pluginContext
+      // 不能作为主题变量使用的自定义属性
+      const customProps = toVarsDict<CustomPropsDictItem>(
+        !isThemeFile ? getVarsMessages(helper.result.messages, 'theme-custom-prop') : []
+      )
       // 处理属性值
-      root.walkDecls(getDeclProcessor({ ...pluginContext, helper }))
+      root.walkDecls(getDeclProcessor({ ...pluginContext, vars: { ...vars, customProps }, helper }))
+
+      // 清理从主题文件中导入的没有使用的自定义属性
+      if (customProps.size) {
+        for (const { used, rawNode } of customProps.values()) {
+          if (used) {
+            continue
+          }
+          // 这里要先取parent，再删
+          const { parent } = rawNode
+          rawNode.remove()
+          if (parent && isTopRootRule(parent) && !parent.nodes.length) {
+            parent.remove()
+          }
+        }
+      }
 
       // 需要写入的:root规则属性
       const properties = !isThemeFile
@@ -129,7 +137,7 @@ export function replaceWithThemeVarsPlugin(
         : pluginContext.vars.variables
 
       // 写入:root规则声明到文件
-      const node = createVarsRootRule({
+      const node = insertVarsRootRule({
         ...pluginContext,
         asComment: !isThemeFile,
         properties,
@@ -143,33 +151,45 @@ export function replaceWithThemeVarsPlugin(
   }))
 }
 
-// 创建顶层作用域变量声明规则
-export function makeTopScopeVarsDeclPlugin(
-  options: ExtendPluginOptions<Required<Pick<PluginOptions, 'urlMessages' | 'variablesMessages'>>>
+// 合并主题文件中的变量到当前解析文件
+// 消息：theme-custom-prop
+export function mergeThemeFileVarsPlugin(
+  options: ExtendPluginOptions<{ isThemeFile: (filename: string) => boolean }>
 ) {
-  return pluginFactory(options, ({ ...pluginContext }) => ({
-    Once: async (root, helper) => {
-      const { vars, syntax, regExps } = pluginContext
-      const { variables } = vars
-      const properties = new Map<string, VarsDictItem>()
-      const rootProperties = new Map<string, VarsDictItem>()
-      for (const varsItem of variables.values()) {
-        const { ident, isRootDecl } = varsItem
-        ;(isRootDecl ? rootProperties : properties).set(ident, varsItem)
-      }
-      if (variables.size) {
-        addTitleComment(null, helper, getSourceFile(helper, root))
-      }
-      if (properties.size) {
-        root.append(createDeclarations({ ...pluginContext, properties, helper }, true, 0).decls)
-      }
-      if (rootProperties.size) {
-        const decls = createDeclarations(
-          { ...pluginContext, properties: rootProperties, helper },
-          true,
-          2
-        ).decls
-        root.append(createRootRule(decls, syntax, regExps, helper))
+  return pluginFactory(options, ({ regExps, onlyColor, isThemeFile }) => ({
+    OnceExit: async (root, helper) => {
+      if (isThemeFile(getSourceFile(helper, root))) {
+        const variables = [...getTopScopeVariables(root, regExps, null, true, true).values()]
+        const clearNode = (node: ChildNode) => {
+          if (node.type === 'comment') {
+            return
+          }
+          const vars = variables.find((vars) => vars.rawNode === node)
+          if (!vars) {
+            node.remove()
+          } else if (vars.isRootDecl) {
+            // :root decl
+            if (determineCanUseAsThemeVarsByValue(vars.value, onlyColor)) {
+              // 主题变量由主题文件引入，不导入当前文件
+              node.remove()
+            } else {
+              // css自定义变量不像scss变量没有使用到也会被清理，这里记录并手动清理
+              setVarsMessage({ ...vars, type: 'theme-custom-prop', helper })
+            }
+          }
+        }
+        //
+        root.each((node) => {
+          if (isTopRootRule(node)) {
+            node.each((child) => clearNode(child))
+            if (!node.nodes.filter((node) => node.type !== 'comment').length) {
+              // 清理空的节点
+              node.remove()
+            }
+          } else {
+            clearNode(node)
+          }
+        })
       }
     },
   }))

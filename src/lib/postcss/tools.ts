@@ -1,4 +1,16 @@
-import { Helpers, Message, Node, Plugin, Root, Syntax } from 'postcss'
+import {
+  Comment,
+  Declaration,
+  Helpers,
+  Message,
+  Node,
+  Plugin,
+  Position,
+  Root,
+  Rule,
+  Source,
+  Syntax,
+} from 'postcss'
 import valueParser, { Node as ValueNode } from 'postcss-value-parser'
 import { isURLFunctionNode } from './assert'
 import {
@@ -35,6 +47,7 @@ type PluginContext<T> = ExtendType<T, { regExps: ThemePropertyMatcher; vars: Var
 type PluginCreator<T> = (context: PluginContext<T>) => Omit<Plugin, 'postcssPlugin'>
 
 interface VarsMessageOptions extends Omit<ThemeVarsMessage, 'ident' | 'type' | 'plugin'> {
+  decl: Declaration | undefined
   helper: Helpers
   ident?: string
   type?: ThemeVarsMessage['type']
@@ -43,14 +56,19 @@ interface VarsMessageOptions extends Omit<ThemeVarsMessage, 'ident' | 'type' | '
 // 设置变量消息
 export function setVarsMessage(options: VarsMessageOptions) {
   const {
+    decl,
     helper,
     originalName,
     type = 'theme-vars',
     ident = makeVariableIdent(originalName),
     ...rest
   } = options
+  //
   const msg = { ...rest, originalName, type, ident, plugin: pluginName } as ThemeVarsMessage
-  delete (msg as any).decl
+  if (decl) {
+    msg.source = decl.source
+  }
+  //
   const messages = helper.result.messages as ThemeVarsMessage[]
   const index = messages.findIndex(
     (msg) => msg.ident === ident && msg.type === type && msg.plugin === pluginName
@@ -198,11 +216,6 @@ export function setIndentedRawBefore(node: Node | undefined, indentLength = 2) {
   return node
 }
 
-// 获取当前处理的样式文件路径
-export function getSourceFile(helper: Helpers, root: Root = helper.result.root) {
-  return root.source?.input.file || helper.result.opts.from || ''
-}
-
 // 获取属性的所有依赖变量
 export function getAllDependencies(ident: string, variables: VarsDict, context: VarsDict) {
   const varDeps = new Set<string>()
@@ -225,4 +238,25 @@ export function getAllDependencies(ident: string, variables: VarsDict, context: 
     }
   }
   return varDeps
+}
+
+// 获取当前处理的样式文件路径
+export function getSourceFile(helper: Helpers, root: Root = helper.result.root) {
+  return root.source?.input.file || helper.result.opts.from || ''
+}
+
+// 为新建节点添加source属性，sourceMap相关
+export function addSourceToNode(node: Comment | Rule, source?: Source) {
+  if (source) {
+    const newSource = (node.source = { ...source } as any)
+    for (const pos of ['start', 'end']) {
+      if (!newSource[pos]) {
+        newSource[pos] = {
+          offset: 0,
+          line: 1,
+          column: 1,
+        } as Position
+      }
+    }
+  }
 }

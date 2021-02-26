@@ -5,12 +5,15 @@ import postcss from 'postcss'
 import type { AtImportOptions } from 'postcss-import'
 import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
+import { ThemeVarsMessage } from '../lib/postcss/variables'
 import { LoaderContext as WebpackLoaderContext, PluginLoader } from '../ThemePlugin'
 import { getVarsMessages, PluginMessages } from '../lib/postcss/tools'
 import { resolveStyle } from '../lib/resolve'
 import {
   createASTMeta,
   getQueryObject,
+  getResultSourceMap,
+  getSourceMapOptions,
   getSupportedSyntax,
   getSyntaxPlugin,
   isSamePath,
@@ -22,15 +25,13 @@ import {
 import {
   defineContextVarsPlugin,
   defineThemeVariablesPlugin,
-  defineTopScopeVarsPlugin,
   defineURLVarsPlugin,
-  makeTopScopeVarsDeclPlugin,
+  mergeThemeFileVarsPlugin,
   preserveRawStylePlugin,
   replaceWithThemeVarsPlugin,
   resolveContextVarsPlugin,
   resolveImportPlugin,
 } from '../lib/postcss/plugins'
-import { ThemeVarsMessage } from '../lib/postcss/variables'
 
 export interface VarsLoaderOptions {
   syntax: SupportedSyntax
@@ -120,7 +121,7 @@ async function setVarsData(loaderContext: LoaderContext, messages: Message[]) {
 async function extractThemeVars(loaderContext: LoaderContext, themeDependencies: string[]) {
   const { options, syntaxPlugin, fileSystem } = loaderContext.data
   const { syntax, onlyColor } = options
-  const extractOptions = { syntax, syntaxPlugin, onlyColor }
+  const pluginOptions = { syntax, syntaxPlugin, onlyColor }
   const themeVars = new Map<string, ThemeVarsMessage>()
 
   for (const file of themeDependencies) {
@@ -129,7 +130,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
     const { messages } = await postcss([
       //
       ...getCommonPlugins(loaderContext, false),
-      defineThemeVariablesPlugin(extractOptions),
+      defineThemeVariablesPlugin(pluginOptions),
       //
     ]).process(source, {
       syntax: syntaxPlugin,
@@ -143,42 +144,6 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
   }
 
   return [...themeVars.values()]
-}
-
-// 抽取变量并返回样式定义规则
-async function makeThemeVarsFile(loaderContext: LoaderContext, source: string, filename: string) {
-  const { syntaxPlugin, options } = loaderContext.data
-  const { syntax, onlyColor } = options
-  const extractOptions = { syntax, syntaxPlugin, onlyColor }
-
-  const { variablesMessages, urlMessages } = await postcss([
-    ...getCommonPlugins(loaderContext, false),
-    defineTopScopeVarsPlugin({ ...extractOptions }),
-  ])
-    .process(source, {
-      syntax: syntaxPlugin,
-      from: filename,
-      to: filename,
-      map: false,
-    })
-    .then(({ messages }) => ({
-      urlMessages: getURLVarsMessages(messages),
-      variablesMessages: getThemeVarsMessages(messages),
-    }))
-
-  const plugins = [
-    makeTopScopeVarsDeclPlugin({ ...extractOptions, urlMessages, variablesMessages }),
-  ]
-
-  // 生成一个临时字符串文件嵌入到当前解析文件中
-  return (
-    await postcss(plugins).process('', {
-      syntax: syntaxPlugin,
-      from: filename,
-      to: filename,
-      map: false,
-    })
-  ).css
 }
 
 // 解析导入的主题文件路径
@@ -246,15 +211,16 @@ function getCommonPlugins(
       plugins: [
         resolveImportPlugin,
         preserveRawStylePlugin(pluginOptions),
-        defineURLVarsPlugin(pluginOptions),
+        !mergeThemeFile
+          ? defineURLVarsPlugin(pluginOptions)
+          : mergeThemeFileVarsPlugin({
+              ...pluginOptions,
+              isThemeFile: (filename) => isThemeStyleFile(filename, themeFiles),
+            }),
         ...atImportPlugins,
       ],
 
-      load: async (filename: string) =>
-        mergeThemeFile && isThemeStyleFile(filename, themeFiles)
-          ? makeThemeVarsFile(loaderContext, await readFile(filename, fileSystem), filename)
-          : readFile(filename, fileSystem),
-
+      load: async (filename: string) => readFile(filename, fileSystem),
       ...restImportOptions,
       //
     } as AtImportOptions),
@@ -264,26 +230,29 @@ function getCommonPlugins(
 // 获取配置对象
 function getLoaderOptions(loaderContext: WebpackLoaderContext) {
   const options = getOptions(loaderContext) as any
-  return { ...options, syntax: getSupportedSyntax(options.syntax) } as VarsLoaderOptions
+  return {
+    ...options,
+    syntax: getSupportedSyntax(options.syntax, loaderContext.resourcePath),
+  } as VarsLoaderOptions
 }
 
 // 获取pitch阶段的处理插件
 function getPluginsForPitchStage(loaderContext: LoaderContext) {
   const { isThemeRequest, syntaxPlugin, options } = loaderContext.data
   const { syntax, onlyColor } = options
-  const extractOptions = { syntax, syntaxPlugin, onlyColor }
+  const pluginOptions = { syntax, syntaxPlugin, onlyColor }
   const plugins = []
 
   if (!isThemeRequest) {
-    plugins.push(defineContextVarsPlugin(extractOptions))
+    plugins.push(defineContextVarsPlugin(pluginOptions))
   }
 
   plugins.push(...getCommonPlugins(loaderContext, false))
 
   plugins.push(
     !isThemeRequest
-      ? resolveContextVarsPlugin(extractOptions)
-      : defineThemeVariablesPlugin(extractOptions)
+      ? resolveContextVarsPlugin(pluginOptions)
+      : defineThemeVariablesPlugin(pluginOptions)
   )
 
   return plugins
@@ -340,7 +309,7 @@ function defineLoaderData(context: WebpackLoaderContext) {
       value: isThemeFile && token === queryToken,
     },
     syntaxPlugin: {
-      value: getSyntaxPlugin(syntax),
+      value: getSyntaxPlugin(syntax, resourcePath),
     },
     themeFiles: {
       value: themeFiles,
@@ -409,14 +378,18 @@ const varsLoader: PluginLoader = function (source, map, meta) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
   const { isStylesheet, isStyleModule, isThemeFile, syntaxPlugin } = data
+
   if (!isStylesheet && !isStyleModule) {
     this.callback(null, source, map, meta)
     return
   }
+
   const callback = this.async() || (() => {})
 
   ;(async () => {
-    source = Buffer.isBuffer(source) ? source.toString('utf8') : source
+    if (Buffer.isBuffer(source)) {
+      source = source.toString('utf8')
+    }
     if (isStyleModule) {
       await preProcess(loaderContext, source)
     }
@@ -430,20 +403,14 @@ const varsLoader: PluginLoader = function (source, map, meta) {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      map: this.sourceMap
-        ? {
-            prev: typeof map === 'string' ? JSON.parse(map) : map,
-            inline: false,
-            annotation: false,
-          }
-        : false,
+      map: getSourceMapOptions(this, map),
     })
 
     const { css, map: resultMap, root, messages, processor } = result
     callback(
       null,
       css,
-      resultMap && resultMap.toJSON(),
+      getResultSourceMap(this, resultMap),
       createASTMeta({ root, messages, version: processor.version }, meta)
     )
     //

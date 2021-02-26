@@ -3,6 +3,7 @@ import path from 'path'
 import { parseQuery } from 'loader-utils'
 import type { Message, Root, Syntax } from 'postcss'
 import { getContextFromFile } from './selfContext'
+import { normalizeSourceMap, normalizeSourceMapAfterPostcss } from './sourceMap'
 
 const astSymbol = Symbol('ThemeLoaderAstMeta')
 
@@ -101,10 +102,14 @@ export function getFileThemeName(file: string) {
 
 // 获取有效的语法名称
 // 即当前支持的解析语法
-export function getSupportedSyntax(syntax: any): SupportedSyntax {
-  syntax = typeof syntax === 'string' ? syntax.toLowerCase() : ''
-  if (!isStylesheet(`.${syntax}`)) {
-    syntax = 'css'
+export function getSupportedSyntax(syntax: any, sourceFile: string): SupportedSyntax {
+  if (isStylesheet(sourceFile)) {
+    syntax = path.extname(sourceFile).substr(1).toLowerCase()
+  } else {
+    syntax = typeof syntax === 'string' ? syntax.toLowerCase() : ''
+    if (!isStylesheet(`.${syntax}`)) {
+      syntax = 'css'
+    }
   }
   return syntax
 }
@@ -209,8 +214,11 @@ export function trimQueryString(filepath: any) {
 }
 
 // 获取语法解析插件
-export function getSyntaxPlugin(syntax: SupportedSyntax): Syntax {
+export function getSyntaxPlugin(syntax: SupportedSyntax, sourceFile: string): Syntax {
   let parserName
+  if (isStylesheet(sourceFile)) {
+    syntax = path.extname(sourceFile).substr(1).toLowerCase() as SupportedSyntax
+  }
   switch (syntax) {
     case 'less':
       parserName = 'postcss-less'
@@ -311,4 +319,25 @@ export function fixResolvedCssLoaderOptions(loaderContext: LoaderContext) {
       }
     }
   )
+}
+
+// 资源处理前的sourcemap配置项
+export function getSourceMapOptions(loaderContext: LoaderContext, map: any) {
+  const { sourceMap, context } = loaderContext
+  if (sourceMap) {
+    const options: any = { inline: false, annotation: false }
+    if (map) {
+      options.prev = normalizeSourceMap(map, context)
+    }
+    return options
+  }
+  return false
+}
+
+// 资源处理后的sourcemap
+export function getResultSourceMap(loaderContext: LoaderContext, map: any) {
+  const { context } = loaderContext
+  if (map) {
+    return normalizeSourceMapAfterPostcss(map.toJSON(), context)
+  }
 }

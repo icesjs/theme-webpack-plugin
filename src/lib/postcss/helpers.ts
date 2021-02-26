@@ -1,6 +1,11 @@
 import * as path from 'path'
 import { Comment, Declaration, Helpers, Node, Rule } from 'postcss'
-import { fixScssCustomizePropertyBug, insertRawBefore, setIndentedRawBefore } from './tools'
+import {
+  addSourceToNode,
+  fixScssCustomizePropertyBug,
+  insertRawBefore,
+  setIndentedRawBefore,
+} from './tools'
 import { packageJson } from '../selfContext'
 import { ChildNode } from 'postcss/lib/node'
 import { ThemePropertyMatcher, VariablesContainer, VarsDict } from './variables'
@@ -17,21 +22,24 @@ type CreateRuleOptions = {
 }
 
 // 创建自定义属性声明
-export function createVarsRootRule(options: CreateRuleOptions) {
+export function insertVarsRootRule(options: CreateRuleOptions) {
   const { syntax, regExps, helper, asComment } = options
   const { decls, deps } = createDeclarations(options, false, 2)
-  let node: Rule | Comment
+  let node: Rule | Comment | null = null
 
   if (asComment) {
     if (!decls.length) {
       return
     }
     // 转换为注释节点（非主题文件），或者合并到:root声明（主题文件）
-    node = toComment(createRootRule(decls, syntax, regExps, helper), helper) as Comment
+    node = toComment(createRootRule(decls, syntax, regExps, helper), helper)
+    if (!node) {
+      return
+    }
   } else {
     // 写入 :root 节点，需要合并至已有的 :root 节点上
     // 不然 eslint 检查通不过
-    node = mergeTopRootDecls(decls, regExps, syntax, helper) as Rule
+    node = mergeTopRootDecls(decls, options) as Rule
     if (!node.nodes.length) {
       return
     }
@@ -62,6 +70,9 @@ export function createVarsRootRule(options: CreateRuleOptions) {
     root.prepend(node)
   }
 
+  if (root.first !== node) {
+    insertRawBefore(node, 2)
+  }
   insertRawBefore(node.next(), 2)
   return node
 }
@@ -74,7 +85,8 @@ export function createRootRule(
   helper: Helpers
 ) {
   const rootRule = helper.rule({
-    selector: ':root',
+    // sass的bug，如果:root不用\:root转译，就会抛错
+    selector: syntax === 'sass' ? String.raw`\:root` : `:root`,
     nodes: decls,
     raws: {
       between: ' ',
@@ -83,6 +95,7 @@ export function createRootRule(
       semicolon: /css|less|scss/.test(syntax),
     },
   })
+  addSourceToNode(rootRule, helper.result?.root?.source)
   // 修复scss的bug
   rootRule.walkDecls(regExps[2], (decl) => {
     decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
@@ -97,7 +110,7 @@ export function createDeclarations(options: CreateRuleOptions, isCopy: boolean, 
   const propDeps: string[] = []
 
   for (const property of properties.values()) {
-    const { ident, isRootDecl, originalName, value, originalValue, dependencies } = property
+    const { ident, isRootDecl, originalName, value, originalValue, dependencies, source } = property
     const processedValue = getProcessedPropertyValue(property, vars, regExps, helper)
     const declValue =
       !isCopy && !isRootDecl
@@ -118,6 +131,7 @@ export function createDeclarations(options: CreateRuleOptions, isCopy: boolean, 
         },
       },
     })
+    decl.source = source
     decls.push(decl)
 
     insertRawBefore(decl, 1)
@@ -130,17 +144,18 @@ export function createDeclarations(options: CreateRuleOptions, isCopy: boolean, 
 }
 
 // 合并属性声明到:root中去
-function mergeTopRootDecls(
-  decls: Declaration[],
-  regExps: ThemePropertyMatcher,
-  syntax: string,
-  helper: Helpers
-) {
+function mergeTopRootDecls(decls: Declaration[], options: CreateRuleOptions) {
+  const { regExps, syntax, helper } = options
   // 合并:root节点
   helper.result.root.each((node) => {
     if (isTopRootRule(node)) {
       const onlyRootSelector = !node.selectors.some((sel) => !isRootRuleSelector(sel))
       node.each((child) => {
+        if (child.type === 'decl' && regExps[2].test(child.prop)) {
+          // css标准自定义属性不合并到主题变量节点上去
+          // 合并主题声明文件到样式文件时，已经把这部分变量移入样式文件中了
+          return
+        }
         const decl = onlyRootSelector ? child : child.clone()
         decls.push(decl as Declaration)
       })
@@ -163,6 +178,12 @@ export function addTitleComment(
   if (node === undefined) {
     return
   }
+  if (process.env.THEME_VARS_IDENT_MODE !== 'development') {
+    if (node) {
+      insertRawBefore(node, 2)
+    }
+    return
+  }
   const { name, author } = packageJson
   const root = helper.result.root
   const email = author?.email ? `<${author!.email}>` : ''
@@ -174,6 +195,7 @@ export function addTitleComment(
     }\n * ${divider} *\n * ${waterMark} *\n * ${divider}`,
     raws: { before: '\n', left: '*\n * ', right: ' ' },
   })
+  addSourceToNode(comment, root.source)
   if (node) {
     root.insertBefore(node, comment)
     insertRawBefore(node, 2)
@@ -187,7 +209,10 @@ export function addTitleComment(
 
 // 转换节点为注释
 function toComment(node: Node, helper: Helpers) {
-  return helper.comment({
+  if (process.env.THEME_VARS_IDENT_MODE !== 'development') {
+    return null
+  }
+  const comment = helper.comment({
     text: node
       .toString(helper.stringify)
       .split(/\r?\n/)
@@ -202,4 +227,6 @@ function toComment(node: Node, helper: Helpers) {
       .join('\n'),
     raws: { left: '*\n', right: '\n ' },
   })
+  addSourceToNode(comment, helper.result?.root?.source)
+  return comment
 }

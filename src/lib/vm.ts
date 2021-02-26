@@ -367,7 +367,7 @@ function getAsyncWebpackRequire(
       // 如果存在循环依赖，则返回被依赖模块已经导出了的内容，这也是commonjs模块的默认做法
       return module.exports
     }
-    const resourceRequest = `${loadersAndResource.join('!')}!${moduleId}`
+    const resourceRequest = [...loadersAndResource, moduleId].join('!')
     // 保存promise的原因是，如果有重复的模块请求，则返回已经处理中的promise
     return (module.promise =
       module.promise || loadWebpackModule(loaderContext, moduleContext, resourceRequest))

@@ -7,6 +7,8 @@ import {
   getASTFromMeta,
   getFileThemeName,
   getQueryObject,
+  getResultSourceMap,
+  getSourceMapOptions,
   getSupportedSyntax,
   getSyntaxPlugin,
   isStylesheet,
@@ -18,14 +20,14 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
   const { token, onlyColor, syntax: rawSyntax, themeAttrName = 'data-theme' } = (getOptions(
     this
   ) as unknown) as VarsLoaderOptions
-  const syntax = getSupportedSyntax(rawSyntax)
+  const syntax = getSupportedSyntax(rawSyntax, resourcePath)
 
   if (queryToken !== token || !isStylesheet(resourcePath)) {
     this.callback(null, source, map, meta)
     return
   }
 
-  const syntaxPlugin = getSyntaxPlugin(syntax)
+  const syntaxPlugin = getSyntaxPlugin(syntax, resourcePath)
   const scope = getFileThemeName(resourcePath)
   const { root } = getASTFromMeta(meta)
 
@@ -36,15 +38,11 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
       syntax: syntaxPlugin,
       from: resourcePath,
       to: resourcePath,
-      map: this.sourceMap
-        ? {
-            prev: typeof map === 'string' ? JSON.parse(map) : map,
-            inline: false,
-            annotation: false,
-          }
-        : false,
+      map: getSourceMapOptions(this, map),
     })
-    .then(({ css, map: resultMap }) => callback(null, css, resultMap && resultMap.toJSON(), meta))
+    .then(({ css, map: resultMap }) =>
+      callback(null, css, getResultSourceMap(this, resultMap), meta)
+    )
     .catch(callback)
 }
 

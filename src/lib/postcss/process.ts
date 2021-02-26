@@ -17,6 +17,7 @@ import {
   VariablesContainer,
   VarsDependencies,
   VarsDict,
+  VarsDictItem,
 } from './variables'
 import {
   fixScssCustomizePropertyBug,
@@ -26,6 +27,15 @@ import {
 } from './tools'
 
 type DeclValueProcessor = ReturnType<typeof getDeclValueProcessor>
+export interface CustomPropsDictItem extends VarsDictItem {
+  rawNode: Declaration
+  used?: boolean
+}
+export type CustomPropsDict = Map<string, CustomPropsDictItem>
+
+interface DeclProcessorVarsContainer extends VariablesContainer {
+  customProps: CustomPropsDict
+}
 
 type ProcessDeclValueWordOptions = {
   node: WordNode
@@ -34,7 +44,7 @@ type ProcessDeclValueWordOptions = {
   isDefault: boolean
   hasDefault: boolean
   onlyColor: boolean
-  vars: VariablesContainer
+  vars: DeclProcessorVarsContainer
   regExps: ThemePropertyMatcher
   helper: Helpers
   processor: DeclValueProcessor
@@ -60,15 +70,9 @@ export function determineCanExtractToRootDeclByIdent(
     // 如果不是本地变量，也不是全局变量，则是个无效的变量引用
     return false
   }
-  if (onlyColor) {
-    // 这里的value是解析后的值
-    const { value } = variables.get(ident)!
-    // 节点是值解析的word类型，直接判断其值即可
-    if (!value || !isColorValue(value)) {
-      return false
-    }
-  }
-  return true
+  const { value } = variables.get(ident)!
+  // 需要对值进行解析判断
+  return determineCanUseAsThemeVarsByValue(value, onlyColor)
 }
 
 // 根据变量的值来判定其是否能够被当成主题变量
@@ -102,14 +106,20 @@ export function determineCanUseAsThemeVarsByValue(value: string, onlyColor: bool
 export function getDeclProcessor(options: {
   onlyColor: boolean
   syntax: string
-  vars: VariablesContainer
+  vars: DeclProcessorVarsContainer
   regExps: ThemePropertyMatcher
   helper: Helpers
 }) {
   const { onlyColor, syntax, vars, regExps, helper } = options
+  const { customProps } = vars
   const processor: DeclValueProcessor = getDeclValueProcessor(onlyColor, vars, regExps, helper)
   return (decl: Declaration) => {
-    if (onlyColor && !regExps[2].test(decl.prop) && !isColorProperty(decl.prop)) {
+    if (
+      onlyColor &&
+      !customProps.size &&
+      !regExps[2].test(decl.prop) &&
+      !isColorProperty(decl.prop)
+    ) {
       return
     }
     decl.value = processor(decl.value, isTopRootDecl(decl), false, false, false)
@@ -119,16 +129,17 @@ export function getDeclProcessor(options: {
   }
 }
 
+// 处理属性声明的值
 function getDeclValueProcessor(
   onlyColor: boolean,
-  vars: VariablesContainer,
+  vars: DeclProcessorVarsContainer,
   regExps: ThemePropertyMatcher,
   helper: Helpers
 ) {
   const processor = (
     value: string,
     isRootDecl: boolean,
-    isVarFunction = false,
+    isVarFunction: boolean,
     isDefault: boolean,
     hasDefault: boolean
   ) => {
@@ -177,7 +188,7 @@ function getDeclValueProcessor(
   return processor
 }
 
-// 属性声明的值处理函数
+// 属性声明的值节点处理函数
 // 消息 theme-prop-vars
 function processDeclValueWord(options: ProcessDeclValueWordOptions) {
   const {
@@ -192,7 +203,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
     helper,
     processor,
   } = options
-  const { references, variables, context } = vars
+  const { references, variables, context, customProps } = vars
   const varName = node.value
   const ident = makeVariableIdent(varName)
   const refVars = references.get(ident)
@@ -218,6 +229,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
       type: 'theme-prop-vars',
       parsed: true,
       dependencies,
+      decl: undefined,
     })
 
     // 处理URL地址
@@ -255,6 +267,12 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
     }
 
     changed = true
+  } else {
+    // 不能作为主题变量抽取，检查是不是自定义属性
+    if (isVarFunction && customProps.has(ident)) {
+      // 标记是一个已经使用的自定义属性变量
+      customProps.get(ident)!.used = true
+    }
   }
   return changed
 }
