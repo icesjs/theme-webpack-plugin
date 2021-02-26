@@ -255,7 +255,7 @@ export function preserveRawStylePlugin(options: PluginOptions) {
 export function addThemeScopePlugin(
   options: ExtendPluginOptions<{ scope: string; themeAttrName: string }>
 ) {
-  return pluginFactory(options, ({ scope, themeAttrName }) => ({
-    Once: async (root) => getThemeScopeProcessor(scope, themeAttrName)(root),
+  return pluginFactory(options, ({ scope, themeAttrName, syntax }) => ({
+    Once: async (root) => getThemeScopeProcessor(syntax, scope, themeAttrName)(root),
   }))
 }

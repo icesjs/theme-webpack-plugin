@@ -59,12 +59,14 @@ export function isTopRootRule(node: Node): node is Rule {
 
 // 判断是不是纯粹的:root规则选择器
 export function isRootRuleSelector(selector: string) {
-  return /^(?:html|:root)$/i.test(selector)
+  // \:root 是兼容sass怪癖，没有反斜杠sass处理不了:root
+  return /^(?:html|\\?:root)$/i.test(selector)
 }
 
 // 选择器是否能够选择中html元素
-export function canSelectRoot(selector: string) {
-  return /^(?:html|:root)(?=\[[^\]]*]|[:,.>~+\u0020]|$)/i.test(selector)
+export function canSelectRootElement(selector: string) {
+  // \:root 是兼容sass怪癖，没有反斜杠sass处理不了:root
+  return /^(\[[^\]]*])*(?:html|\\?:root)(?=\[[^\]]*]|[:,.>~+\u0020]|$)/i.test(selector)
 }
 
 // 判断是不是顶层的属性声明
