@@ -1,3 +1,9 @@
+## [1.2.4](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.3...v1.2.4) (2021-02-26)
+
+### Bug Fixes
+
+- fix some problems ([690a15b](https://github.com/icesjs/theme-webpack-plugin/commit/690a15b5a2ae4acb89eb2e5e11aeb78c164a36ba))
+
 ## [1.2.3](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.1...v1.2.3) (2021-02-25)
 
 ### Bug Fixes
