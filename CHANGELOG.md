@@ -1,3 +1,9 @@
+## [1.2.6](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.5...v1.2.6) (2021-02-26)
+
+### Bug Fixes
+
+- fix HMR will failed when extract option is true (default) ([281e541](https://github.com/icesjs/theme-webpack-plugin/commit/281e541de2a06fc15ae20c8733cb6ff5a812fc90))
+
 ## [1.2.5](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.3...v1.2.5) (2021-02-26)
 
 ### Bug Fixes
