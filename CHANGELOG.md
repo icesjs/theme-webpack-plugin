@@ -1,3 +1,13 @@
+# [1.3.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.5...v1.3.0) (2021-02-27)
+
+### Bug Fixes
+
+- fix HMR will failed when extract option is true (default) ([281e541](https://github.com/icesjs/theme-webpack-plugin/commit/281e541de2a06fc15ae20c8733cb6ff5a812fc90))
+
+### Features
+
+- support extract special rule (\@font-face、\@page、\@keyframe) inside theme file ([bd64d82](https://github.com/icesjs/theme-webpack-plugin/commit/bd64d82c18b97fa12305c84b6764de6d2c4c5966))
+
 ## [1.2.6](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.5...v1.2.6) (2021-02-26)
 
 ### Bug Fixes
