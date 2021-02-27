@@ -1,6 +1,7 @@
 import * as path from 'path'
 import { format } from 'util'
-import { interpolateName } from 'loader-utils'
+import { Result } from 'postcss'
+import { getOptions, interpolateName } from 'loader-utils'
 import { ValidPluginOptions } from '../options'
 import { LoaderContext, PluginLoader } from '../ThemePlugin'
 import { hasOwnProperty, isEsModuleExport, normalizePublicPath } from '../lib/utils'
@@ -159,14 +160,30 @@ function injectScript() {
   `
 }
 
+// 优化代码内联的style内容
+function optimizeCssContent(content: string, resourcePath: string) {
+  if (process.env.THEME_VARS_IDENT_MODE === 'development') {
+    return content
+  }
+  return require('cssnano')
+    .process(
+      content,
+      { from: resourcePath, map: false, parser: require('postcss-safe-parser') },
+      { preset: ['default', { minifyFontValues: { removeQuotes: false } }] }
+    )
+    .then((result: Result) => result.css)
+}
+
 // normal阶段
 const extractLoader: PluginLoader = function (source: string | Buffer) {
   if (Buffer.isBuffer(source)) {
     source = source.toString('utf8')
   }
   const pluginOptions = extractLoader.getPluginOptions!()
+  const { style } = getOptions(this)
   const callback = this.async() || (() => {})
-  const { getCssContent = defaultGetCssContent } = pluginOptions
+  const { getCssContent = defaultGetCssContent, esModule } = pluginOptions
+  const { resourcePath } = this
 
   const moduleContext = {
     __webpack_public_path__: getResourcePublicPath(this, source, pluginOptions),
@@ -174,7 +191,14 @@ const extractLoader: PluginLoader = function (source: string | Buffer) {
 
   // 执行虚拟机，运行webpack模块，抽取css模块导出的内容
   exec(this, moduleContext, source, injectScript())
-    .then((exports) => getCssContent(exports, this.resourcePath))
+    .then((exports) => getCssContent(exports, resourcePath))
+    .then((content) => (content && style && /^\s*\/\*.*?\*\/\s*$/.test(content) ? '' : content))
+    .then((content) => (content && style ? optimizeCssContent(content, resourcePath) : content))
+    .then((content) =>
+      style
+        ? (esModule ? 'export default ' : 'module.exports = ') + JSON.stringify(content)
+        : content
+    )
     .then((content) => callback(null, content))
     .catch(callback)
 }

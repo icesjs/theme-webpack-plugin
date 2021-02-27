@@ -1,6 +1,6 @@
 import * as path from 'path'
 import valueParser from 'postcss-value-parser'
-import { Node } from 'postcss'
+import { Container, Message, Node } from 'postcss'
 import { hasResourceURL, isTopRootRule } from './assert'
 import { getTopScopeVariables, toVarsDict } from './variables'
 import {
@@ -12,6 +12,7 @@ import {
   parseURLPaths,
   pluginFactory,
   PluginMessages,
+  pluginName,
   PluginOptions,
   setVarsMessage,
 } from './tools'
@@ -23,6 +24,12 @@ import {
 } from './process'
 import { addTitleComment, insertVarsRootRule } from './helpers'
 import { ChildNode } from 'postcss/lib/node'
+
+interface SpecialNodesMessage extends Message {
+  plugin: typeof pluginName
+  type: 'theme-special-nodes'
+  data: Node[]
+}
 
 // 消息 theme-vars 、 theme-root-vars
 export function defineThemeVariablesPlugin(options: PluginOptions) {
@@ -173,7 +180,7 @@ export function mergeThemeFileVarsPlugin(
               // 主题变量由主题文件引入，不导入当前文件
               node.remove()
             } else {
-              // css自定义变量不像scss变量没有使用到也会被清理，这里记录并手动清理
+              // css自定义变量不像scss变量处理完成后会被清理，这里记录并手动清理
               setVarsMessage({ ...vars, type: 'theme-custom-prop', helper })
             }
           }
@@ -231,7 +238,7 @@ export function resolveImportPlugin(
   }))
 }
 
-// 保留节点的格式
+// 保留导入节点的格式
 export function preserveRawStylePlugin(options: PluginOptions) {
   return pluginFactory(options, ({}) => ({
     Once: async (root) => {
@@ -252,10 +259,72 @@ export function preserveRawStylePlugin(options: PluginOptions) {
 }
 
 // 为主题变量添加命名空间
+// 消息：theme-special-rule-root
 export function addThemeScopePlugin(
   options: ExtendPluginOptions<{ scope: string; themeAttrName: string }>
 ) {
   return pluginFactory(options, ({ scope, themeAttrName, syntax }) => ({
-    Once: async (root) => getThemeScopeProcessor(syntax, scope, themeAttrName)(root),
+    Once: async (root, helper) => {
+      const specialNodes: Node[] = []
+      const processor = getThemeScopeProcessor(syntax, scope, themeAttrName)
+      processor(root, (node: ChildNode) => {
+        // @font-face、@page、@keyframes
+        let rule
+        if (node.parent !== root) {
+          let parent
+          let child: ChildNode | Container = node
+          while ((parent = child.parent) && parent !== root) {
+            const curr = child as ChildNode
+            const great = parent.parent
+            child = parent.clone({ nodes: [] })
+            child.nodes = [curr]
+            if (great !== root) {
+              child.parent = great
+            }
+          }
+          rule = child
+        } else {
+          rule = node
+        }
+        node.remove()
+        specialNodes.push(rule)
+      })
+      //
+      helper.result.messages.push({
+        plugin: pluginName,
+        type: 'theme-special-nodes',
+        data: specialNodes,
+      } as SpecialNodesMessage)
+    },
+  }))
+}
+
+// 抽取特殊的规则节点
+// 前置插件：addThemeScopePlugin
+// 前置消息：theme-special-nodes
+export function extractSpecialRulePlugin(options: PluginOptions) {
+  return pluginFactory(options, ({ regExps }) => ({
+    OnceExit: async (root, helper) => {
+      const isSpecialNodesMessage = (msg: Message): msg is SpecialNodesMessage => {
+        const { plugin, type } = msg as SpecialNodesMessage
+        return plugin === pluginName && type === 'theme-special-nodes'
+      }
+      const specialNodesMessage = helper.result.messages.find(isSpecialNodesMessage)
+      if (specialNodesMessage) {
+        const specialNodes = specialNodesMessage.data
+        const variables = getTopScopeVariables(
+          root,
+          regExps,
+          (decl, isRootDecl) => !isRootDecl,
+          false,
+          true
+        ).values()
+        const varNodes = []
+        for (const { rawNode } of variables) {
+          varNodes.push(rawNode)
+        }
+        root.removeAll().append(varNodes).append(specialNodes)
+      }
+    },
   }))
 }

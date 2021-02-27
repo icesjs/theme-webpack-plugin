@@ -50,7 +50,9 @@ export function createASTMeta(meta: Omit<PostcssASTMeta, 'type'>, prevMeta: any)
 }
 
 // 解析查询参数为一个对象
-export function getQueryObject(resourceQuery: any): { token?: string; [p: string]: any } {
+export function getQueryObject(
+  resourceQuery: any
+): { token?: string; style?: boolean; [p: string]: any } {
   if (resourceQuery) {
     if (typeof resourceQuery === 'object') {
       return resourceQuery

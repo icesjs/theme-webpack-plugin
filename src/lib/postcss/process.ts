@@ -6,7 +6,6 @@ import {
   canSelectRootElement,
   isColorProperty,
   isColorValue,
-  isPreservedAnimationIdentifier,
   isTopRootDecl,
   isURLFunctionNode,
 } from './assert'
@@ -394,80 +393,29 @@ function updateURLFunctionValue(node: FunctionNode, varsDict: URLVarsDictItem, b
 
 // 获取主题作用域处理器
 export function getThemeScopeProcessor(syntax: string, scope: string, themeAttrName: string) {
-  const keyframes = new Map<string, string>()
-  return (root: Root) => {
-    // 处理属性声明
-    root.each((node) => processThemeScope(node, syntax, scope, themeAttrName, keyframes))
-    if (!keyframes.size) {
-      return
-    }
-    // keyframes 名称替换
-    root.walkDecls(/^(?:-\w+-)?animation(?:-name)?$/i, (decl) => {
-      const parsed = valueParser(decl.value)
-      let updated = false
-      // 这里只处理一级子节点
-      for (const node of parsed.nodes) {
-        if (node.type !== 'word' && node.type !== 'string') {
-          continue
-        }
-        const { value } = node
-        if (!keyframes.has(value) || /^\.?\d/.test(value)) {
-          continue
-        }
-        const scopedValue = keyframes.get(value)!
-        if (node.type === 'word') {
-          if (isPreservedAnimationIdentifier(value)) {
-            continue
-          }
-          node.value = scopedValue
-        } else {
-          node.value = scopedValue
-        }
-        updated = true
-      }
-      if (updated) {
-        decl.value = valueParser.stringify(parsed.nodes)
-      }
-    })
-  }
-}
-
-// 为属性声明添加主题作用域
-function processThemeScope(
-  node: ChildNode,
-  syntax: string,
-  scope: string,
-  themeAttrName: string,
-  keyframes: Map<string, string>
-) {
   const scopeAttr = `[${themeAttrName}=${JSON.stringify(scope)}]`
-  if (node.type === 'rule') {
-    const { selectors = [] } = node
-    node.selectors = selectors.map((selector) =>
-      canSelectRootElement(selector)
-        ? selector.replace(/(?<=(?:\[[^\]]*])+|^)(?:html|\\?:root)/i, (s) => `${s}${scopeAttr}`)
-        : (syntax === 'sass' ? String.raw`\:root` : ':root') + `${scopeAttr} ${selector}`
-    )
-  } else if (node.type === 'atrule') {
-    const { name } = node
-    // @media、@supports、@keyframes
-    // @document 这个还是个草案
-    // @page 这个不好处理，也不常用，而且打印相关的东西不要放主题里面去
-    // @font-face 这个要处理？比较麻烦
-    if (name === 'media' || name === 'supports' || name === 'document') {
-      // 递归处理子节点
-      node.each((child) => processThemeScope(child, syntax, scope, themeAttrName, keyframes))
-    } else if (/-?keyframes$/i.test(name)) {
-      // 先保存动画关键帧的名称，后面再处理属性值中的引用
-      let { params } = node
-      let escapedWithQuotes = false
-      if (/^(['"])(.+?)\1$/.test(params)) {
-        params = RegExp.$2
-        escapedWithQuotes = true
-      }
-      if (escapedWithQuotes || !isPreservedAnimationIdentifier(params)) {
-        keyframes.set(params, (node.params = `${params}-${scope}`))
+
+  return (root: Root, handleSpecialNode: (node: ChildNode) => void) => {
+    const process = (node: ChildNode) => {
+      if (node.type === 'rule') {
+        const { selectors = [] } = node
+        node.selectors = selectors.map((selector) =>
+          canSelectRootElement(selector)
+            ? selector.replace(/(?<=(?:\[[^\]]*])+|^)(?:html|\\?:root)/i, (s) => `${s}${scopeAttr}`)
+            : (syntax === 'sass' ? String.raw`\:root` : ':root') + `${scopeAttr} ${selector}`
+        )
+      } else if (node.type === 'atrule') {
+        // @media、@supports、@keyframes、@document、@font-face、@page
+        const { name } = node
+        if (name === 'media' || name === 'supports' || name === 'document') {
+          // 递归处理子节点
+          node.each(process)
+        } else if (/-?keyframes$/i.test(name) || name === 'font-face' || name === 'page') {
+          handleSpecialNode(node)
+        }
       }
     }
+    // 处理属性声明
+    root.each(process)
   }
 }

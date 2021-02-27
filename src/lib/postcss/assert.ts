@@ -29,8 +29,6 @@ const implicitlyColorPropertyRegex = new RegExp(`^(?:${implicitlyColorProperty.j
 
 const imageUrlRegex = /url\(\s*(['"]?)[^'"\s]+?\1\s*\)|(?:-webkit-)?image-set\(/
 
-export const preservedAnimationIdentifier = /^(?:None|none|initial|inherit|linear|ease|ease-in|ease-out|ease-in-out|infinite|normal|reverse|alternate|alternate-reverse|running|paused|forwards|backwards|both)$/
-
 export function isColorValue(value: string) {
   if (typeof (value as any) !== 'string') {
     return false
@@ -84,11 +82,6 @@ export function isURLFunctionNode(
     return false
   }
   return node.value === 'url' || (includeImageSet && /(?:-webkit-)?image-set/.test(node.value))
-}
-
-// 判断是不是css动画保留的一些关键字
-export function isPreservedAnimationIdentifier(value: string) {
-  return preservedAnimationIdentifier.test(value)
 }
 
 export function hasResourceURL(value: string) {

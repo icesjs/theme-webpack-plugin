@@ -1,6 +1,6 @@
 import postcss from 'postcss'
 import { getOptions } from 'loader-utils'
-import { addThemeScopePlugin } from '../lib/postcss/plugins'
+import { addThemeScopePlugin, extractSpecialRulePlugin } from '../lib/postcss/plugins'
 import { PluginLoader } from '../ThemePlugin'
 import { VarsLoaderOptions } from './varsLoader'
 import {
@@ -16,7 +16,7 @@ import {
 
 const scopeLoader: PluginLoader = function (source, map, meta) {
   const { resourcePath, resourceQuery } = this
-  const { token: queryToken } = getQueryObject(resourceQuery)
+  const { token: queryToken, style } = getQueryObject(resourceQuery)
   const { token, onlyColor, syntax: rawSyntax, themeAttrName = 'data-theme' } = (getOptions(
     this
   ) as unknown) as VarsLoaderOptions
@@ -33,7 +33,13 @@ const scopeLoader: PluginLoader = function (source, map, meta) {
 
   const callback = this.async() || (() => {})
 
-  postcss([addThemeScopePlugin({ syntax, syntaxPlugin, onlyColor, scope, themeAttrName })])
+  const pluginOptions = { syntax, syntaxPlugin, onlyColor, scope, themeAttrName }
+  const plugins = [addThemeScopePlugin(pluginOptions)]
+  if (style) {
+    plugins.push(extractSpecialRulePlugin(pluginOptions))
+  }
+
+  postcss(plugins)
     .process(root || source, {
       syntax: syntaxPlugin,
       from: resourcePath,

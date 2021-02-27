@@ -6,7 +6,7 @@ type Theme = {
   readonly name: string
   readonly activated: boolean
   readonly activate: () => Promise<string>
-  css?: string
+  style?: string
 }
 
 var hasOwnProperty = Object.prototype.hasOwnProperty
@@ -22,20 +22,21 @@ function getContainer() {
   return parent
 }
 
-function insertStyle(css: string) {
+function insertStyle(style: string) {
   if (styleElement && styleElement.parentNode) {
     styleElement.parentNode.removeChild(styleElement)
   }
-  if (css) {
+  if (style) {
     var parent = getContainer()
     styleElement = document.createElement('style')
-    styleElement.appendChild(document.createTextNode(css))
+    styleElement.type = 'text/css'
+    styleElement.appendChild(document.createTextNode(style))
     parent.appendChild(styleElement)
   }
 }
 
-function activateTheme(name: string, css: string) {
-  insertStyle(css)
+function activateTheme(name: string, style: string) {
+  insertStyle(style)
   document.documentElement.setAttribute(themeAttrName, name)
 }
 
@@ -43,22 +44,22 @@ function isActivated(name: string) {
   return document.documentElement.getAttribute(themeAttrName) === name
 }
 
-function defineTheme(name: string, css: string) {
+function defineTheme(name: string, style: string) {
   return Object.defineProperties(
     {},
     {
       name: { value: name },
-      css: {
+      style: {
         set(content: any) {
           if (typeof content === 'string') {
-            var prev = css
-            if ((css = content.trim()) !== prev && isActivated(name)) {
-              insertStyle(css)
+            var prev = style
+            if ((style = content.trim()) !== prev && isActivated(name)) {
+              insertStyle(style)
             }
           }
         },
         get() {
-          return css
+          return style
         },
       },
       activated: {
@@ -69,7 +70,7 @@ function defineTheme(name: string, css: string) {
       activate: {
         value: function () {
           if (!isActivated(name)) {
-            activateTheme(name, css)
+            activateTheme(name, style)
           }
           return Promise.resolve(name)
         },
@@ -79,7 +80,7 @@ function defineTheme(name: string, css: string) {
 }
 
 function registerThemes(
-  themes: { name: string; css?: string }[],
+  themes: { name: string; style?: string }[],
   defaultTheme: string,
   attrName: string
 ) {
@@ -87,11 +88,11 @@ function registerThemes(
   var definedThemes = themes.map(function (item) {
     var theme
     var name = item.name
-    var css = typeof item.css === 'string' ? item.css.trim() : ''
+    var style = typeof item.style === 'string' ? item.style.trim() : ''
     if (!hasOwnProperty.call(themeStorage, name)) {
-      theme = themeStorage[name] = defineTheme(name, css)
+      theme = themeStorage[name] = defineTheme(name, style)
     } else {
-      ;(theme = themeStorage[name]).css = css
+      ;(theme = themeStorage[name]).style = style
     }
     return theme
   })

@@ -153,7 +153,6 @@ class ThemePlugin implements WebpackPlugin {
     module.request = `!!${loaderPath}?${options.join('&')}!${request}`
   }
 
-  // 注入插件方法到内部loader
   // 注入插件方法到内部loaders
   private injectLoaderMethod(themeModule: ThemeModule) {
     for (const [name, method] of [
