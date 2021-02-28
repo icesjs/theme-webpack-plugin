@@ -18,13 +18,14 @@ type CreateRuleOptions = {
   syntax: string
   regExps: ThemePropertyMatcher
   helper: Helpers
+  isCopy: boolean // 是否是对属性的拷贝操作
   asComment?: boolean
 }
 
 // 创建自定义属性声明
 export function insertVarsRootRule(options: CreateRuleOptions) {
-  const { syntax, regExps, helper, asComment } = options
-  const { decls, deps } = createDeclarations(options, false, 2)
+  const { syntax, regExps, helper, asComment, isCopy } = options
+  const { decls, deps } = createDeclarations(options, isCopy, 2)
   let node: Rule | Comment | null = null
 
   if (asComment) {
@@ -39,7 +40,7 @@ export function insertVarsRootRule(options: CreateRuleOptions) {
   } else {
     // 写入 :root 节点，需要合并至已有的 :root 节点上
     // 不然 eslint 检查通不过
-    node = mergeTopRootDecls(decls, options) as Rule
+    node = mergeTopRootDecls(decls, !isCopy, options) as Rule
     if (!node.nodes.length) {
       return
     }
@@ -144,14 +145,18 @@ export function createDeclarations(options: CreateRuleOptions, isCopy: boolean, 
 }
 
 // 合并属性声明到:root中去
-function mergeTopRootDecls(decls: Declaration[], options: CreateRuleOptions) {
+function mergeTopRootDecls(
+  decls: Declaration[],
+  clearCustomProps: boolean,
+  options: CreateRuleOptions
+) {
   const { regExps, syntax, helper } = options
   // 合并:root节点
   helper.result.root.each((node) => {
     if (isTopRootRule(node)) {
       const onlyRootSelector = !node.selectors.some((sel) => !isRootRuleSelector(sel))
       node.each((child) => {
-        if (child.type === 'decl' && regExps[2].test(child.prop)) {
+        if (clearCustomProps && child.type === 'decl' && regExps[2].test(child.prop)) {
           // css标准自定义属性不合并到主题变量节点上去
           // 合并主题声明文件到样式文件时，已经把这部分变量移入样式文件中了
           return

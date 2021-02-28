@@ -19,6 +19,7 @@ import {
   VarsDictItem,
 } from './variables'
 import {
+  ExtendType,
   fixScssCustomizePropertyBug,
   getAllDependencies,
   getSourceFile,
@@ -26,6 +27,15 @@ import {
 } from './tools'
 
 type DeclValueProcessor = ReturnType<typeof getDeclValueProcessor>
+interface DeclValueProcessorOptions {
+  onlyColor: boolean
+  syntax: string
+  isThemeFile: boolean
+  vars: DeclProcessorVarsContainer
+  regExps: ThemePropertyMatcher
+  helper: Helpers
+}
+
 export interface CustomPropsDictItem extends VarsDictItem {
   rawNode: Declaration
   used?: boolean
@@ -36,16 +46,12 @@ interface DeclProcessorVarsContainer extends VariablesContainer {
   customProps: CustomPropsDict
 }
 
-type ProcessDeclValueWordOptions = {
+interface ProcessDeclValueWordOptions extends DeclValueProcessorOptions {
   node: WordNode
   isRootDecl: boolean
   isVarFunction: boolean
   isDefault: boolean
   hasDefault: boolean
-  onlyColor: boolean
-  vars: DeclProcessorVarsContainer
-  regExps: ThemePropertyMatcher
-  helper: Helpers
   processor: DeclValueProcessor
 }
 
@@ -54,7 +60,7 @@ type PropertyLike = {
   value: string
   originalValue: string
   dependencies?: VarsDependencies
-  urlDependencies?: Map<string, string>
+  cachedValue?: Map<string, string>
 }
 
 // 判定一个值节点是否是主题相关的变量
@@ -102,16 +108,10 @@ export function determineCanUseAsThemeVarsByValue(value: string, onlyColor: bool
 
 // 获取变量抽取迭代处理函数。
 // 消息 theme-vars。
-export function getDeclProcessor(options: {
-  onlyColor: boolean
-  syntax: string
-  vars: DeclProcessorVarsContainer
-  regExps: ThemePropertyMatcher
-  helper: Helpers
-}) {
-  const { onlyColor, syntax, vars, regExps, helper } = options
+export function getDeclProcessor(options: DeclValueProcessorOptions) {
+  const { onlyColor, syntax, vars, regExps } = options
   const { customProps } = vars
-  const processor: DeclValueProcessor = getDeclValueProcessor(onlyColor, vars, regExps, helper)
+  const processor: DeclValueProcessor = getDeclValueProcessor(options)
   return (decl: Declaration) => {
     if (
       onlyColor &&
@@ -129,12 +129,7 @@ export function getDeclProcessor(options: {
 }
 
 // 处理属性声明的值
-function getDeclValueProcessor(
-  onlyColor: boolean,
-  vars: DeclProcessorVarsContainer,
-  regExps: ThemePropertyMatcher,
-  helper: Helpers
-) {
+function getDeclValueProcessor(options: DeclValueProcessorOptions) {
   const processor = (
     value: string,
     isRootDecl: boolean,
@@ -147,6 +142,7 @@ function getDeclValueProcessor(
     }
     let changed = false
 
+    const { regExps } = options
     const iterator = (
       node: ValueNode,
       isVarFunction: boolean,
@@ -161,15 +157,12 @@ function getDeclValueProcessor(
       } else if (node.type === 'word' && regExps[0].test(node.value)) {
         if (
           processDeclValueWord({
+            ...options,
             node,
             isVarFunction,
             isDefault,
             hasDefault,
             isRootDecl,
-            onlyColor,
-            vars,
-            helper,
-            regExps,
             processor,
           })
         ) {
@@ -187,7 +180,30 @@ function getDeclValueProcessor(
   return processor
 }
 
-// 属性声明的值节点处理函数
+// 获取变量的默认值
+function getDeclVarsDefaultValue(
+  options: ExtendType<ProcessDeclValueWordOptions, { value: string; processedValue: string }>
+) {
+  const { isThemeFile, isVarFunction, regExps, processedValue, value, isDefault } = options
+
+  let defaultValue
+  if (!isThemeFile) {
+    if (isVarFunction && regExps[2].test(processedValue)) {
+      if (!isDefault) {
+        defaultValue = value
+      } else {
+        defaultValue = processedValue
+      }
+    } else {
+      defaultValue = processedValue
+    }
+  } else {
+    defaultValue = ''
+  }
+
+  return defaultValue
+}
+
 // 消息 theme-prop-vars
 function processDeclValueWord(options: ProcessDeclValueWordOptions) {
   const {
@@ -208,6 +224,10 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
   const refVars = references.get(ident)
   let changed = false
   if (refVars) {
+    if (isVarFunction && regExps[2].test(varName)) {
+      // var函数中的自定义属性变量，不作处理
+      return
+    }
     changed = true
     // 递归处理引用值
     node.value = processor(refVars.originalValue, isRootDecl, isVarFunction, isDefault, hasDefault)
@@ -216,6 +236,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
     //
     const originalValue = node.value
     const varItem = variables.get(ident)!
+    const source = varItem.source
     const value = varItem.value || originalValue
     const dependencies = varItem.dependencies
     setVarsMessage({
@@ -229,6 +250,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
       parsed: true,
       dependencies,
       decl: undefined,
+      source,
     })
 
     // 处理URL地址
@@ -239,16 +261,8 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
       helper
     )
 
-    let defaultValue
-    if (isVarFunction && regExps[2].test(processedValue)) {
-      if (!isDefault) {
-        defaultValue = value
-      } else {
-        defaultValue = processedValue
-      }
-    } else {
-      defaultValue = processedValue
-    }
+    // 获取变量默认值
+    const defaultValue = getDeclVarsDefaultValue({ ...options, value, processedValue })
 
     // 更新属性声明的值（修改原样式文件）
     if (isVarFunction) {
@@ -259,10 +273,10 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
           node.value = ident
         }
       } else {
-        node.value = `${ident}, ${defaultValue}`
+        node.value = `${ident}${defaultValue ? `, ${defaultValue}` : ''}`
       }
     } else {
-      node.value = `var(${ident}, ${defaultValue})`
+      node.value = `var(${ident}${defaultValue ? `, ${defaultValue}` : ''})`
     }
 
     changed = true
@@ -291,13 +305,13 @@ export function getProcessedPropertyValue(
   }
 
   const { urlVars, variables, context } = vars
-  let { urlDependencies } = property
-  if (!urlDependencies) {
-    urlDependencies = property.urlDependencies = new Map<string, string>()
+  let { cachedValue } = property
+  if (!cachedValue) {
+    cachedValue = property.cachedValue = new Map<string, string>()
   }
 
-  if (urlDependencies.has(sourceFile)) {
-    return urlDependencies.get(sourceFile)!
+  if (cachedValue.has(sourceFile)) {
+    return cachedValue.get(sourceFile)!
   }
 
   const varDeps = getAllDependencies(ident, variables, context)
@@ -308,13 +322,13 @@ export function getProcessedPropertyValue(
     }
   }
   if (!urlDeps.size) {
-    urlDependencies.set(sourceFile, originalValue)
+    cachedValue.set(sourceFile, originalValue)
     return originalValue
   }
 
   const processor = getURLValueProcessor({ sourceFile, urlDeps, regExps, helper, vars })
   const processedValue = processor(originalValue)
-  urlDependencies.set(sourceFile, processedValue)
+  cachedValue.set(sourceFile, processedValue)
 
   return processedValue
 }

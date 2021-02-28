@@ -114,7 +114,7 @@ export interface PluginOptions {
    */
   esModule?: boolean
   /**
-   * 是否将除默认主题外的主题抽取成单独的文件发布（也即常说的split code）。默认为 <code>true</code> 。<br>
+   * 是否将除默认主题外的主题抽取成单独的文件发布（也即常说的split code）。默认为 <code>false</code> 。<br>
    * 如果不抽取，则所有主题样式都默认与主样式文件打包在一起，并以不同属性值作为命名空间进行区分。<br>
    * 如果主题文件里不仅仅只是变量声明，还包含其他的一些非变量类样式，建议将主题文件单独发布。<br>
    * 如果主题样式本身体积较大，也建议单独发布。
@@ -245,8 +245,9 @@ const schema: Schema = {
       type: 'boolean',
     },
     extract: {
-      description: 'Indicates whether split theme files to separated chunk file (default to true).',
-      default: true,
+      description:
+        'Indicates whether split theme files to separated chunk file (default to false).',
+      default: false,
       type: 'boolean',
     },
     themeAttrName: {
@@ -323,7 +324,7 @@ export function getOptions(opts?: PluginOptions) {
       filename: '[name].[contenthash:8].css',
       outputPath: 'themes',
       esModule: true,
-      extract: true,
+      extract: false,
       themeAttrName: 'data-theme',
       isStyleModule,
     } as ValidPluginOptions,

@@ -115,13 +115,16 @@ export function replaceWithThemeVarsPlugin(
 ) {
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
     OnceExit: async (root, helper) => {
+      const { messages } = helper.result
       const { vars } = pluginContext
       // 不能作为主题变量使用的自定义属性
       const customProps = toVarsDict<CustomPropsDictItem>(
-        !isThemeFile ? getVarsMessages(helper.result.messages, 'theme-custom-prop') : []
+        !isThemeFile ? getVarsMessages(messages, 'theme-custom-prop') : []
       )
       // 处理属性值
-      root.walkDecls(getDeclProcessor({ ...pluginContext, vars: { ...vars, customProps }, helper }))
+      root.walkDecls(
+        getDeclProcessor({ ...pluginContext, vars: { ...vars, customProps }, isThemeFile, helper })
+      )
 
       // 清理从主题文件中导入的没有使用的自定义属性
       if (customProps.size) {
@@ -140,13 +143,14 @@ export function replaceWithThemeVarsPlugin(
 
       // 需要写入的:root规则属性
       const properties = !isThemeFile
-        ? toVarsDict(getVarsMessages(helper.result.messages, 'theme-prop-vars'))
+        ? toVarsDict(getVarsMessages(messages, 'theme-prop-vars'))
         : pluginContext.vars.variables
 
       // 写入:root规则声明到文件
       const node = insertVarsRootRule({
         ...pluginContext,
         asComment: !isThemeFile,
+        isCopy: false,
         properties,
         helper,
       })
