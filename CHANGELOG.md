@@ -1,3 +1,9 @@
+## [1.3.3](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.3.3) (2021-03-01)
+
+### Bug Fixes
+
+- fix default value of css custom property may be incorrect ([a16a561](https://github.com/icesjs/theme-webpack-plugin/commit/a16a5617c25bd41ee1cd85ab19d542f3a858bfd4))
+
 ## [1.3.2](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.0...v1.3.2) (2021-03-01)
 
 ### Bug Fixes
