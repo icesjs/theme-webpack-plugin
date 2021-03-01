@@ -1,6 +1,6 @@
 import * as path from 'path'
 import valueParser from 'postcss-value-parser'
-import { Container, Message, Node } from 'postcss'
+import { Container, Message, Node, Root } from 'postcss'
 import { hasResourceURL, isTopRootRule } from './assert'
 import { getTopScopeVariables, toVarsDict } from './variables'
 import {
@@ -9,6 +9,7 @@ import {
   getSourceFile,
   getVarsMessages,
   insertRawBefore,
+  mergeRootRule,
   parseURLPaths,
   pluginFactory,
   PluginMessages,
@@ -116,7 +117,7 @@ export function replaceWithThemeVarsPlugin(
   return pluginFactory(options, ({ isThemeFile, ...pluginContext }) => ({
     OnceExit: async (root, helper) => {
       const { messages } = helper.result
-      const { vars } = pluginContext
+      const { vars, syntax, regExps } = pluginContext
       // 不能作为主题变量使用的自定义属性
       const customProps = toVarsDict<CustomPropsDictItem>(
         !isThemeFile ? getVarsMessages(messages, 'theme-custom-prop') : []
@@ -155,8 +156,12 @@ export function replaceWithThemeVarsPlugin(
         helper,
       })
 
-      if (node && isThemeFile) {
-        addTitleComment(node, helper)
+      if (isThemeFile) {
+        if (node) {
+          addTitleComment(node, helper)
+        }
+      } else {
+        mergeRootRule(root, syntax, regExps)
       }
     },
   }))
@@ -165,43 +170,47 @@ export function replaceWithThemeVarsPlugin(
 // 合并主题文件中的变量到当前解析文件
 // 消息：theme-custom-prop
 export function mergeThemeFileVarsPlugin(
-  options: ExtendPluginOptions<{ isThemeFile: (filename: string) => boolean }>
+  options: ExtendPluginOptions<{ astMaps: Map<string, Root> }>
 ) {
-  return pluginFactory(options, ({ regExps, onlyColor, isThemeFile }) => ({
+  return pluginFactory(options, ({ regExps, onlyColor, astMaps }) => ({
     OnceExit: async (root, helper) => {
-      if (isThemeFile(getSourceFile(helper, root))) {
-        const variables = [...getTopScopeVariables(root, regExps, null, true, true).values()]
-        const clearNode = (node: ChildNode) => {
-          if (node.type === 'comment') {
-            return
-          }
-          const vars = variables.find((vars) => vars.rawNode === node)
-          if (!vars) {
+      const sourceFile = getSourceFile(helper, root)
+      const parsedRoot = astMaps.get(sourceFile)
+      if (!parsedRoot) {
+        return
+      }
+      root.removeAll().append(parsedRoot.nodes)
+      const variables = [...getTopScopeVariables(root, regExps, null, true, true).values()]
+      const clearNode = (node: ChildNode) => {
+        if (node.type === 'comment') {
+          return
+        }
+        const vars = variables.find((vars) => vars.rawNode === node)
+        if (!vars) {
+          node.remove()
+        } else if (vars.isRootDecl) {
+          // :root decl
+          if (determineCanUseAsThemeVarsByValue(vars.value, onlyColor)) {
+            // 主题变量由主题文件引入，不导入当前文件
             node.remove()
-          } else if (vars.isRootDecl) {
-            // :root decl
-            if (determineCanUseAsThemeVarsByValue(vars.value, onlyColor)) {
-              // 主题变量由主题文件引入，不导入当前文件
-              node.remove()
-            } else {
-              // css自定义变量不像scss变量处理完成后会被清理，这里记录并手动清理
-              setVarsMessage({ ...vars, type: 'theme-custom-prop', helper })
-            }
+          } else {
+            // css自定义变量不像scss变量处理完成后会被清理，这里记录并手动清理
+            setVarsMessage({ ...vars, type: 'theme-custom-prop', helper })
           }
         }
-        //
-        root.each((node) => {
-          if (isTopRootRule(node)) {
-            node.each((child) => clearNode(child))
-            if (!node.nodes.filter((node) => node.type !== 'comment').length) {
-              // 清理空的节点
-              node.remove()
-            }
-          } else {
-            clearNode(node)
-          }
-        })
       }
+      //
+      root.each((node) => {
+        if (isTopRootRule(node)) {
+          node.each((child) => clearNode(child))
+          if (!node.nodes.filter((node) => node.type !== 'comment').length) {
+            // 清理空的节点
+            node.remove()
+          }
+        } else {
+          clearNode(node)
+        }
+      })
     },
   }))
 }

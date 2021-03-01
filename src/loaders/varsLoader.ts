@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AcceptedPlugin, Message, Syntax } from 'postcss'
-import postcss from 'postcss'
+import postcss, { Root } from 'postcss'
 import type { AtImportOptions } from 'postcss-import'
 import atImport from 'postcss-import'
 import { getOptions } from 'loader-utils'
@@ -51,6 +51,7 @@ interface LoaderData extends PluginMessages {
   readonly syntaxPlugin: Syntax
   readonly fileSystem: typeof fs
   readonly uriMaps: Map<string, Map<string, string>>
+  readonly astMaps: Map<string, Root>
 }
 
 interface LoaderContext extends WebpackLoaderContext {
@@ -119,7 +120,7 @@ async function setVarsData(loaderContext: LoaderContext, messages: Message[]) {
 
 // 需要在所有导入完成后执行，不然会丢变量
 async function extractThemeVars(loaderContext: LoaderContext, themeDependencies: string[]) {
-  const { options, syntaxPlugin, fileSystem } = loaderContext.data
+  const { options, syntaxPlugin, fileSystem, astMaps } = loaderContext.data
   const { syntax, onlyColor } = options
   const pluginOptions = { syntax, syntaxPlugin, onlyColor }
   const themeVars = new Map<string, ThemeVarsMessage>()
@@ -127,7 +128,7 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
   for (const file of themeDependencies) {
     const source = await readFile(file, fileSystem)
     // 处理主题文件
-    const { messages } = await postcss([
+    const { messages, root } = await postcss([
       //
       ...getCommonPlugins(loaderContext, false),
       defineThemeVariablesPlugin(pluginOptions),
@@ -138,6 +139,9 @@ async function extractThemeVars(loaderContext: LoaderContext, themeDependencies:
       to: file,
       map: false,
     })
+
+    // 保存主题文件的语法树，后面合并主题文件时需要用到
+    astMaps.set(file, root)
 
     // 合并数据
     getThemeVarsMessages(messages, themeVars)
@@ -163,6 +167,10 @@ function getResolveImportPlugin(loaderContext: LoaderContext) {
           if (!uriMaps.has(sourceFile)) {
             uriMaps.set(sourceFile, new Map<string, string>())
           }
+          const uriMap = uriMaps.get(sourceFile)!
+          if (uriMap.has(id)) {
+            return uriMap.get(id)
+          }
           const file = await resolveStyle(resolve, id, syntax, context)
           if (
             isSamePath(sourceFile, resourcePath) &&
@@ -172,7 +180,7 @@ function getResolveImportPlugin(loaderContext: LoaderContext) {
             // 如果是被loader处理的资源文件，其中导入的是要是主题文件，才进行处理
             return
           }
-          uriMaps.get(sourceFile)!.set(id, file)
+          uriMap.set(id, file)
         } catch (e) {}
       },
     }),
@@ -193,7 +201,7 @@ function getCommonPlugins(
   importOptions: AtImportOptions = {}
 ): AcceptedPlugin[] {
   const { rootContext, data } = loaderContext
-  const { options, fileSystem, syntaxPlugin, themeFiles } = data
+  const { options, fileSystem, syntaxPlugin, astMaps } = data
   const { syntax, onlyColor } = options
   const { plugins: atImportPlugins = [], ...restImportOptions } = importOptions
   const { plugin: resolveImportPlugin, filter, resolve } = getResolveImportPlugin(loaderContext)
@@ -213,10 +221,7 @@ function getCommonPlugins(
         preserveRawStylePlugin(pluginOptions),
         !mergeThemeFile
           ? defineURLVarsPlugin(pluginOptions)
-          : mergeThemeFileVarsPlugin({
-              ...pluginOptions,
-              isThemeFile: (filename) => isThemeStyleFile(filename, themeFiles),
-            }),
+          : mergeThemeFileVarsPlugin({ ...pluginOptions, astMaps }),
         ...atImportPlugins,
       ],
 
@@ -266,9 +271,7 @@ function getPluginsForNormalStage(loaderContext: LoaderContext) {
   const { syntax, onlyColor } = options
   const plugins = []
 
-  if (!isThemeFile) {
-    plugins.push(...getCommonPlugins(loaderContext, true))
-  }
+  plugins.push(...getCommonPlugins(loaderContext, !isThemeFile))
 
   plugins.push(
     replaceWithThemeVarsPlugin({
@@ -322,6 +325,9 @@ function defineLoaderData(context: WebpackLoaderContext) {
     },
     uriMaps: {
       value: new Map([[resourcePath, new Map()]]),
+    },
+    astMaps: {
+      value: new Map(),
     },
   }) as LoaderData
 }

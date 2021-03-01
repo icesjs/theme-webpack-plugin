@@ -10,8 +10,11 @@ const defaultExportPath = '@ices/theme/dist/theme'
 
 export interface PluginOptions {
   /**
-   * 变量声明文件。<br>
-   * 可使用glob语法。
+   * 主题变量声明文件。可使用 glob 语法。<br>
+   * 主题文件中也可以声明非变量的内容，以及导入其他的样式文件。
+   * 构建过程中，主题插件会对声明的内容进行拆分处理。<br>
+   * 被导入的变量中可以包含 url 相对地址，主题插件会对变量中包含的 url 相对地址进行重写，
+   * 确保在导入文件中这些相对地址是正确引用目标资源的。
    */
   themes?: string | string[]
   /**
@@ -21,10 +24,10 @@ export interface PluginOptions {
    */
   themeFilter?: ((path: string) => boolean) | RegExp
   /**
-   * 主题内容导出路径。一般不需要配置这项。<br>
+   * 主题内容导出路径。一般不需要配置这项。默认为 <code> @ices/theme/dist/theme.js</code> 。<br>
    * 如果默认的主题管理包 <code>@ices/theme</code> 不符合你的主题管理要求，
    * 你需要使用自己的主题管理器，则可以通过这个配置项指定一个路径地址。<br>
-   * 本插件会将导出的内容输出到这个路径指定的文件中。<br>
+   * 主题插件会将导出的内容输出到这个路径指定的文件中。<br>
    * 其默认导出为一个包含主题描述对象的数组，其格式为：
    * <br>
    * <pre>
@@ -39,7 +42,6 @@ export interface PluginOptions {
    * 然后你就可以通过自己的代码来导入这个文件，并通过主题对象的 <code>activate()</code> 方法来激活该主题了。
    * 请确保此路径指定的文件是可写的。<br>
    * 注意，<code>activate()</code> 方法返回的是一个 <code>Promise</code> 对象。<br>
-   * 默认为 <code>@ices/theme/dist/theme.js<code>
    */
   themeExportPath?: string
   /**
@@ -50,7 +52,7 @@ export interface PluginOptions {
   defaultTheme?: string
   /**
    * 是否仅抽取来自于主题文件中声明的代表颜色的变量。默认为true。<br>
-   * 本插件会根据实际可包含颜色定义的样式属性声明（比如 <code>border</code>、<code>background</code>），
+   * 主题插件会根据实际可包含颜色定义的样式属性声明（比如 <code>border</code>、<code>background</code>），
    * 检查其值是否引用了变量，并根据引用变量的上下文环境，计算出其真实值，然后检查其真实值是否是一个颜色值。<br>
    * 颜色值包括颜色名称（比如 <code>green</code> 代表绿色，<code>transparent</code> 代表透明色），
    * 以及符合 <code>Web</code> 标准的颜色代码
@@ -59,7 +61,7 @@ export interface PluginOptions {
    * 如果变量的引用不是来自于主题文件，则此变量不会被抽取，所以，你的样式文件还是需要导入要使用的主题样式文件的。<br>
    * 可被当成主题变量抽取的变量声明，含特定语法的变量声明（比如：$scss-var:xxx、@less-var:xxx）以及定义在<code>:root</code>规则上的css自定义属性
    * （<code>:root{--my-prop:xxx}</code>）<br>
-   * 注意，如果你在当前文件中声明了一个和导入变量同名的变量，则本插件不会将这个变量提取，也就是说仅有来自于主题文件(含主题文件自身导入的其他文件)中的变量才会被提取。
+   * 注意，如果你在当前文件中声明了一个和导入变量同名的变量，则主题插件不会将这个变量提取，也就是说仅有来自于主题文件(含主题文件自身导入的其他文件)中的变量才会被提取。
    * 有一个特殊情况是，如果本地变量值里又使用了其他的变量，而这些其他的变量都来自于主题文件，则该本地变量同样会被提取。
    * 比如：$my-border：1px solid $color-from-dark-theme，在这个本地变量$my-border里面又引用了一个来自主题里面的变量$color-from-dark-theme，因为所有变量的引用
    * 都可以计算出其来源，并确定都是来源于主题文件，所以引用了$my-border变量的声明值，也会被当成动态主题提取。<br>
@@ -130,12 +132,12 @@ export interface PluginOptions {
    * 一般情况下，css会被loader转换为js模块以便被webpack打包使用，
    * 如果需要单独以css文件形式发布css模块，则需要先将css内容从js模块里面分离出来，再以css chunk资源文件形式发布。<br>
    * 常用的分离css内容的插件，有 mini-css-extract-plugin、extract-loader、extract-text-webpack-plugin（已不被建议使用）等。<br>
-   * 因对分离的css资源，需要随主题切换进行精细化的加载卸载处理，mini-css-extract-plugin 无法满足要求，所以本插件自身也提供
+   * 因对分离的css资源，需要随主题切换进行精细化的加载卸载处理，mini-css-extract-plugin 无法满足要求，所以主题插件自身也提供
    * 了css资源从代码里分离的能力。<br>
    * 从js代码里分离出css内容，需要以webpack模块上下文来运行js模块代码，并从js模块的导出对象里面获取原始css字符串。<br>
-   * 默认情况下本插件假设前置处理css模块转换的loader为css-loader，css-loader的导出内容是固定的格式
+   * 默认情况下主题插件假设前置处理css模块转换的loader为css-loader，css-loader的导出内容是固定的格式
    * （一个数组，1号索引为原始css内容，数组自身有toString方法，将css内容及源码映射文件以字符串形式导出来）。<br>
-   * 如果你使用了其他的loader来模块化css，可配置此项，将css内容从模块的导出对象里获取并传递给本插件的loader。
+   * 如果你使用了其他的loader来模块化css，可配置此项，将css内容从模块的导出对象里获取并传递给主题插件的loader。
    * @param exports 样式模块转换为js模块后的导出对象。
    * @param resourcePath 被处理样式文件的绝对路径。
    */
@@ -155,7 +157,7 @@ export interface PluginOptions {
    * <pre>
    * require('@ices/theme-webpack-plugin').ThemePlugin.shouldResolveStyleModule = (resourcePath, resourceQuery) => true
    * </pre><br>
-   * 另外，本插件未处理stylus语法格式。
+   * 另外，主题插件未处理stylus语法格式。
    */
   isStyleModule?: (module: {
     request: string

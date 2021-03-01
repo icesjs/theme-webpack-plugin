@@ -260,3 +260,28 @@ export function addSourceToNode(node: Comment | Rule, source?: Source) {
     }
   }
 }
+
+// 合并当前Root上的所有顶层:root规则声明
+export function mergeRootRule(root: Root, syntax: string, regExps: ThemePropertyMatcher) {
+  let rule: Rule | undefined
+  root.each((node) => {
+    if (node.type === 'rule' && /\\?:root/.test(node.selector)) {
+      if (!rule) {
+        rule = node
+      } else {
+        node.each((child) => {
+          rule!.append(child)
+        })
+        node.remove()
+      }
+    }
+  })
+  if (rule) {
+    rule.each((node) => {
+      if (node.type === 'decl') {
+        node.value = fixScssCustomizePropertyBug(node.value, syntax, regExps)
+      }
+    })
+  }
+  return rule || null
+}
