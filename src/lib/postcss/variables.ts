@@ -1,5 +1,5 @@
 import { AtRule, Declaration, Root, Source } from 'postcss'
-import valueParser from 'postcss-value-parser'
+import valueParser, { Node as ValueNode } from 'postcss-value-parser'
 import { getHashDigest } from 'loader-utils'
 import { isTopRootRule } from './assert'
 
@@ -226,19 +226,45 @@ function parseValue(
     return ''
   }
 
-  let containVars = false
+  let updated = false
   const parsed = valueParser(value)
-  parsed.walk((node) => {
+  const process = (node: ValueNode) => {
     if (node.type === 'word' && regExps[0].test(node.value)) {
       // 当前节点是一个变量名引用
-      containVars = true
+      updated = true
       const varName = node.value
       varsDependencies.set(makeVariableIdent(varName), varName)
       node.value = getVarsValue(varName, varsDependencies, variables, regExps)
     }
+  }
+
+  parsed.walk((node, index, parsedNodes) => {
+    // var函数
+    if (node.type === 'function' && node.value === 'var') {
+      let value = ''
+      const { nodes } = node
+      const newNode = valueParser('value').nodes[0]
+
+      // 将var函数解构为变量值
+      if (regExps[2].test(nodes[0]?.value)) {
+        valueParser.walk(nodes, process)
+        if (nodes[0].value) {
+          value = valueParser.stringify(nodes[0])
+        } else if (nodes.length > 2) {
+          value = valueParser.stringify(nodes.slice(2))
+        }
+      }
+
+      newNode.value = value
+      parsedNodes[index] = newNode
+      updated = true
+      return false
+    } else {
+      process(node)
+    }
   })
 
-  return containVars ? valueParser.stringify(parsed.nodes) : value
+  return updated ? valueParser.stringify(parsed.nodes) : value
 }
 
 // 格式化全局变量，解除变量引用关系

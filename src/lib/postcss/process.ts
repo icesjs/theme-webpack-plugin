@@ -110,7 +110,7 @@ export function determineCanUseAsThemeVarsByValue(value: string, onlyColor: bool
 // 消息 theme-vars。
 export function getDeclProcessor(options: DeclValueProcessorOptions) {
   const { onlyColor, syntax, vars, regExps } = options
-  const { customProps } = vars
+  const { customProps, variables } = vars
   const processor: DeclValueProcessor = getDeclValueProcessor(options)
   return (decl: Declaration) => {
     if (
@@ -122,6 +122,12 @@ export function getDeclProcessor(options: DeclValueProcessorOptions) {
       return
     }
     decl.value = processor(decl.value, isTopRootDecl(decl), false, false, false)
+    if (regExps[0].test(decl.prop)) {
+      const ident = makeVariableIdent(decl.prop)
+      if (variables.has(ident)) {
+        variables.get(ident)!.originalValue = decl.value
+      }
+    }
     if (regExps[2].test(decl.prop)) {
       decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
     }
