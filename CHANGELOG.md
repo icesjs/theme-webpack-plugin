@@ -1,3 +1,9 @@
+## [1.3.2](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.0...v1.3.2) (2021-03-01)
+
+### Bug Fixes
+
+- fix the problem that file imported by theme file self are not apply namespace ([15d7d8b](https://github.com/icesjs/theme-webpack-plugin/commit/15d7d8bf3d807089b4ff2fc43d2bdbff05895478))
+
 ## [1.3.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.0...v1.3.1) (2021-02-28)
 
 # [1.3.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.2.5...v1.3.0) (2021-02-27)
