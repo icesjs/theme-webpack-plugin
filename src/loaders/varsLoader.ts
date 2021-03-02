@@ -181,6 +181,8 @@ function getResolveImportPlugin(loaderContext: LoaderContext) {
             return
           }
           uriMap.set(id, file)
+          // 添加依赖文件
+          loaderContext.addDependency(file)
         } catch (e) {}
       },
     }),
@@ -383,7 +385,7 @@ export const pitch: PluginLoader['pitch'] = function () {
 const varsLoader: PluginLoader = function (source, map, meta) {
   const loaderContext = this as LoaderContext
   const { data, resourcePath } = loaderContext
-  const { isStylesheet, isStyleModule, isThemeFile, syntaxPlugin } = data
+  const { isStylesheet, isStyleModule, isThemeFile, syntaxPlugin, uriMaps } = data
 
   if (!isStylesheet && !isStyleModule) {
     this.callback(null, source, map, meta)
@@ -399,7 +401,7 @@ const varsLoader: PluginLoader = function (source, map, meta) {
     if (isStyleModule) {
       await preProcess(loaderContext, source)
     }
-    if (!isThemeFile && !data.uriMaps.get(resourcePath)!.size) {
+    if (!isThemeFile && !uriMaps.get(resourcePath)!.size) {
       callback(null, source, map, meta)
       return
     }
