@@ -1,7 +1,7 @@
-import { AtRule, Declaration, Root, Source } from 'postcss'
+import { AtRule, ChildNode, Declaration, Root, Source } from 'postcss'
 import valueParser, { Node as ValueNode } from 'postcss-value-parser'
 import { getHashDigest } from 'loader-utils'
-import { isTopRootRule } from './assert'
+import { isTopRootRule, isTopScopeVariable } from './assert'
 
 export interface ThemeVarsMessage {
   plugin: string // 当前插件的名称
@@ -51,7 +51,7 @@ type VariablesDecl = {
   isRootDecl: boolean
   dependencies: VarsDependencies
   decl: Declaration
-  rawNode: Declaration | AtRule
+  rawNode: ChildNode
   from: string | undefined
   parsed: boolean
 }
@@ -123,6 +123,26 @@ export function getVarPropertyRegExps(syntax: string) {
   return [allRegx, syntaxRegx, cssRegx] as ThemePropertyMatcher
 }
 
+// 转换为变量声明，主要处理less的@var，转换为decl
+export function toVariableDecl(node: AtRule | Declaration) {
+  let decl: Declaration | undefined
+  let varDecl = node as Declaration
+  if (varDecl.variable) {
+    if (node.type === 'atrule') {
+      // @var: value
+      const { name, params } = node
+      decl = varDecl.clone()
+      decl.type = 'decl'
+      decl.prop = `@${name}`
+      decl.value = varDecl.value || params
+    } else {
+      // $var: value || --var: value
+      decl = node
+    }
+  }
+  return decl
+}
+
 // 获取顶层变量
 export function getTopScopeVariables(
   root: Root,
@@ -135,32 +155,18 @@ export function getTopScopeVariables(
   if (typeof filter !== 'function') {
     filter = () => true
   }
-  for (const node of root.nodes) {
-    if (node.type === 'decl' || node.type === 'atrule') {
-      let decl
-      if (node.type === 'atrule' && (node as any).variable) {
-        // @var: value
-        const value = (node as any).value || (node as AtRule).params || ''
-        decl = {
-          type: 'decl',
-          prop: `@${node.name}`,
-          value,
-          source: node.source,
+  for (const node of [...root.nodes]) {
+    if (isTopRootRule(node)) {
+      for (const decl of [...node.nodes]) {
+        if (isTopScopeVariable<Declaration>(decl, regExps[1], regExps[2]) && filter(decl, true)) {
+          // :root { --var: value }
+          addTopScopeVariable(variables, decl, true, persistRawNode ? decl : undefined)
         }
-      } else {
-        // $var: value
-        decl = node
       }
-      const varNode = decl as Declaration
-      if (regExps[1].test(varNode.prop) && filter(varNode, false)) {
-        addTopScopeVariable(variables, varNode, root, false, persistRawNode ? node : undefined)
-      }
-    } else if (isTopRootRule(node)) {
-      // :root {--prop: value}
-      for (const rNode of node.nodes) {
-        if (rNode.type === 'decl' && regExps[2].test(rNode.prop) && filter(rNode, true)) {
-          addTopScopeVariable(variables, rNode, root, true, persistRawNode ? rNode : undefined)
-        }
+    } else if (isTopScopeVariable(node, regExps[1], regExps[2])) {
+      const decl = toVariableDecl(node)!
+      if (filter(decl, false)) {
+        addTopScopeVariable(variables, decl, false, persistRawNode ? node : undefined)
       }
     }
   }
@@ -171,9 +177,8 @@ export function getTopScopeVariables(
 function addTopScopeVariable(
   variables: VariablesContext,
   varDecl: Declaration,
-  root: Root,
   isRootDecl: boolean,
-  rawNode?: Declaration | AtRule
+  rawNode?: ChildNode
 ) {
   variables.set(varDecl.prop, {
     ident: makeVariableIdent(varDecl.prop),
@@ -184,7 +189,7 @@ function addTopScopeVariable(
     isRootDecl,
     decl: varDecl,
     rawNode,
-    from: varDecl.source?.input.file || root.source?.input.file,
+    from: varDecl.source?.input?.file,
     parsed: false,
   } as VariablesDecl)
 }

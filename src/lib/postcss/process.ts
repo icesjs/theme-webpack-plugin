@@ -7,6 +7,7 @@ import {
   isColorProperty,
   isColorValue,
   isTopRootDecl,
+  isTopScopeVariable,
   isURLFunctionNode,
 } from './assert'
 import {
@@ -24,6 +25,7 @@ import {
   getAllDependencies,
   getSourceFile,
   setVarsMessage,
+  trimInterpolation,
 } from './tools'
 
 type DeclValueProcessor = ReturnType<typeof getDeclValueProcessor>
@@ -121,13 +123,16 @@ export function getDeclProcessor(options: DeclValueProcessorOptions) {
     ) {
       return
     }
+
     decl.value = processor(decl.value, isTopRootDecl(decl), false, false, false)
-    if (regExps[0].test(decl.prop)) {
+
+    if (isTopScopeVariable(decl, regExps[1], regExps[2])) {
       const ident = makeVariableIdent(decl.prop)
       if (variables.has(ident)) {
         variables.get(ident)!.originalValue = decl.value
       }
     }
+
     if (regExps[2].test(decl.prop)) {
       decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
     }
@@ -136,6 +141,7 @@ export function getDeclProcessor(options: DeclValueProcessorOptions) {
 
 // 处理属性声明的值
 function getDeclValueProcessor(options: DeclValueProcessorOptions) {
+  const { regExps, syntax } = options
   const processor = (
     value: string,
     isRootDecl: boolean,
@@ -148,7 +154,6 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
     }
     let changed = false
 
-    const { regExps } = options
     const iterator = (
       node: ValueNode,
       isVarFunction: boolean,
@@ -177,7 +182,7 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
       }
     }
 
-    const parsed = valueParser(value)
+    const parsed = valueParser(trimInterpolation(value, syntax))
     parsed.walk((node) => iterator(node, isVarFunction, isDefault, hasDefault))
 
     return changed ? valueParser.stringify(parsed.nodes) : value
@@ -231,7 +236,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
   let changed = false
   if (refVars) {
     if (isVarFunction && regExps[2].test(varName)) {
-      // var函数中的自定义属性变量，不作处理
+      // var函数中的自定义属性变量引用，不作处理
       return
     }
     changed = true

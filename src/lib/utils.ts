@@ -99,7 +99,7 @@ export function isSamePath(x: any, y: any) {
 
 // 获取主题的名称
 export function getFileThemeName(file: string) {
-  return path.basename(file, path.extname(file)).toLowerCase()
+  return path.basename(file, path.extname(file)).toLowerCase().replace(/^_/, '')
 }
 
 // 获取有效的语法名称

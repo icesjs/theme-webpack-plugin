@@ -1,4 +1,5 @@
 import {
+  ChildNode,
   Comment,
   Declaration,
   Helpers,
@@ -12,13 +13,14 @@ import {
   Syntax,
 } from 'postcss'
 import valueParser, { Node as ValueNode } from 'postcss-value-parser'
-import { isURLFunctionNode } from './assert'
+import { isContainerNode, isURLFunctionNode, isVariable } from './assert'
 import {
   getReferenceVars,
   getVarPropertyRegExps,
   makeVariableIdent,
   ThemePropertyMatcher,
   ThemeVarsMessage,
+  toVariableDecl,
   toVarsDict,
   URLVarsDictItem,
   VariablesContainer,
@@ -284,4 +286,110 @@ export function mergeRootRule(root: Root, syntax: string, regExps: ThemeProperty
     })
   }
   return rule || null
+}
+
+// 去掉插值符号
+// 只处理scss语法，因为在属性的值里面使用插值标记，仅scss支持
+// less的插值只能用在属性名里面，或者url字符串里面
+export function trimInterpolation(value: string, syntax: string) {
+  if (!/^(?:s[ac]ss)$/.test(syntax) || !/#{.+?}/.test(value)) {
+    return value
+  }
+  // 处理scss的插值变量
+  // 这里需要去掉插值变量标记，是因为 valueParser 处理的word类型值不会将插值标记去掉
+  const startToken = '#{'
+  const endToken = '}'
+  const iterator = (nodes: ValueNode[]) => {
+    let startIndex = -1
+    let endIndex = -1
+    nodes.forEach((node, index) => {
+      const { value, type } = node
+      if (type !== 'word') {
+        if (node.type === 'function') {
+          // 递归函数节点的子节点
+          iterator(node.nodes)
+        }
+        return
+      }
+      // 处理标识符
+      if (value.startsWith(startToken) && value.endsWith(endToken)) {
+        // 没有多余空格的值
+        node.value = value.substring(startToken.length, value.length - endToken.length)
+      } else {
+        // 记录并处理含多余空格的值
+        if (value === startToken) {
+          startIndex = index
+        } else if (value === endToken) {
+          endIndex = index
+        }
+        if (startIndex > -1 && endIndex > -1) {
+          nodes[startIndex].value = ''
+          nodes[endIndex].value = ''
+          startIndex = endIndex = -1
+        }
+      }
+    })
+  }
+  //
+  const parsed = valueParser(value)
+  iterator(parsed.nodes)
+  //
+  return valueParser.stringify(parsed.nodes)
+}
+
+// 迭代访问规则声明，过滤了@function节点
+// 迭代的节点包含变量声明
+export function walkDecls(
+  root: Root,
+  regExps: ThemePropertyMatcher,
+  callback: (node: Declaration, index: number) => false | void
+) {
+  const excludeRuleRegx = /^(?:function)$/i
+  const iterator = (child: ChildNode, index: number) => {
+    if (child.type === 'atrule') {
+      if (regExps[1].test('$x') && excludeRuleRegx.test(child.name)) {
+        return
+      }
+    }
+
+    // 执行回调
+    let result
+    const isVars = isVariable(child, regExps[0])
+    if (isVars || child.type === 'decl') {
+      try {
+        const node = child as Declaration
+
+        // 如果是个at规则的变量(less)，则转换为标准decl
+        const decl = isVars ? toVariableDecl(node)! : node
+        result = callback(decl, index)
+
+        // at规则变量(less)的情况，如果decl更新了值，则更新原始节点的值
+        if (isVars && child.type === 'atrule') {
+          // @var: value
+          if ((node.value || child.params) !== decl.value) {
+            // 这里node和child指向的是同一个元素，只是代表的类型不同
+            node.value = decl.value
+            child.params = decl.value
+          }
+        }
+      } catch (err) {
+        const { addToError } = child as any
+        if (typeof addToError === 'function') {
+          throw addToError.call(child, err)
+        }
+        throw err
+      }
+    }
+
+    // 迭代子节点
+    if (result !== false && isContainerNode(child)) {
+      result = child.each(iterator)
+    }
+
+    return result
+  }
+
+  if (isContainerNode(root)) {
+    return root.each(iterator)
+  }
 }

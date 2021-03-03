@@ -16,6 +16,7 @@ import {
   pluginName,
   PluginOptions,
   setVarsMessage,
+  walkDecls,
 } from './tools'
 import {
   CustomPropsDictItem,
@@ -122,8 +123,11 @@ export function replaceWithThemeVarsPlugin(
       const customProps = toVarsDict<CustomPropsDictItem>(
         !isThemeFile ? getVarsMessages(messages, 'theme-custom-prop') : []
       )
+
       // 处理属性值
-      root.walkDecls(
+      walkDecls(
+        root,
+        regExps,
         getDeclProcessor({ ...pluginContext, vars: { ...vars, customProps }, isThemeFile, helper })
       )
 

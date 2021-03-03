@@ -1,5 +1,5 @@
 import isCssColor from 'is-color'
-import { Declaration, Node, Rule } from 'postcss'
+import { AtRule, ChildNode, Container, Declaration, Node, Rule } from 'postcss'
 import { FunctionNode as FunctionValueNode, Node as ValueNode } from 'postcss-value-parser'
 
 const implicitlyColorProperty = [
@@ -41,6 +41,38 @@ export function isColorValue(value: string) {
 
 export function isColorProperty(prop: string) {
   return implicitlyColorPropertyRegex.test(prop) || /-(?:color|image)$/.test(prop)
+}
+
+// 判断是不是一个顶层作用域变量属性声明
+export function isTopScopeVariable<T extends Declaration | AtRule>(
+  node: ChildNode,
+  syntaxRegx: RegExp,
+  cssRegx: RegExp
+): node is T {
+  if (node.parent?.type === 'root') {
+    return isVariable(node, syntaxRegx)
+  } else if (node.type === 'decl' && isTopRootDecl(node)) {
+    return cssRegx.test(node.prop)
+  }
+  return false
+}
+
+// 判断节点是不是一个变量属性声明
+export function isVariable(node: ChildNode, varRegx: RegExp): node is Declaration | AtRule {
+  if ((node as Declaration).variable) {
+    if (node.type === 'decl') {
+      return varRegx.test(node.prop)
+    }
+    if (node.type === 'atrule') {
+      return varRegx.test(`@${node.name}`)
+    }
+  }
+  return false
+}
+
+// 判断节点是否是容器节点
+export function isContainerNode(node: Node): node is Container {
+  return typeof (node as any).each === 'function'
 }
 
 // 判断是不是顶层的纯粹:root规则
