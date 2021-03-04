@@ -1,3 +1,11 @@
+## [1.3.6](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.3.6) (2021-03-04)
+
+### Bug Fixes
+
+- fix default value of css custom property may be incorrect ([a16a561](https://github.com/icesjs/theme-webpack-plugin/commit/a16a5617c25bd41ee1cd85ab19d542f3a858bfd4))
+- fixing HMR may not be effective ([830007b](https://github.com/icesjs/theme-webpack-plugin/commit/830007b7106f63d026f5281363d8bb5eff246640))
+- optimize interpolation value of scss syntax ([9557c8b](https://github.com/icesjs/theme-webpack-plugin/commit/9557c8b0025064188c275eb980e93349ea7fbc48))
+
 ## [1.3.5](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.3.5) (2021-03-03)
 
 ### Bug Fixes
