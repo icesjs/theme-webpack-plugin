@@ -2,6 +2,287 @@
 
 ## A library for process themes.
 
+## How does it work?
+
+### Don't use build plugin
+
+This is your style file.
+
+```css
+/* styles/app.css */
+
+body {
+  background-color: #0d1117;
+}
+```
+
+Let's assume a scenario.
+
+You want your page background color to be able to switch according to user preferences.
+
+Then you use a variable to separate the background-color styles.
+
+```css
+/* styles/app.css */
+
+@import '../themes/dark.css';
+
+body {
+  background-color: var(--body-background-color);
+}
+```
+
+You create a theme variable declaration file named by dark.
+
+```css
+/* themes/dark.css */
+
+:root {
+  --body-background-color: #0d1117;
+}
+```
+
+So far, it's all as you think, your page has a dark background color.
+
+Next, you create a white style theme file named by light.
+
+```css
+/* themes/light.css */
+
+:root {
+  --body-background-color: #fff;
+}
+```
+
+If you don't use tools to make these variables work, you need to add additional attributes to isolate them.
+
+Then you need to change your code to use these variables. Just like this:
+
+```css
+/* styles/app.css */
+@import '../themes/dark.css';
+@import '../themes/light.css';
+body {
+  background-color: var(--body-background-color);
+}
+
+/* themes/dark.css */
+[data-theme='dark']:root {
+  --body-background-color: #0d1117;
+}
+
+/* themes/light.css */
+[data-theme='light']:root {
+  --body-background-color: #fff;
+}
+```
+
+Moreover, you need to write some javascript code to dynamically switch theme attributes on the page.
+
+If you use CSS preprocessor like scss or less, the situation may be more complicated.
+
+```less
+/* styles/app.less */
+@import '../themes/dark.less';
+body {
+  background-color: @body-background-color;
+}
+
+/* themes/dark.less */
+@body-background-color: #0d1117;
+```
+
+If there are some special style rules that need to be changed with the theme,
+you don't even have a good way to make them dynamic.
+
+```css
+/* themes/dark.css */
+
+/* it seems difficult to switch the rule */
+@font-face {
+  font-family: 'iconfont';
+  src: url('iconfont.eot');
+}
+```
+
+### Use build plugin
+
+This is you style files:
+
+```less
+/* styles/app.less */
+
+@import '../themes/dark.less';
+
+body {
+  background-color: @body-background-color;
+}
+
+button {
+  border: 1px solid @button-border-color;
+}
+```
+
+```less
+/* themes/dark.less */
+
+@body-background-color: #0d1117;
+@button-border-color: #30363d;
+
+aside {
+  background-color: #161b22;
+}
+
+@media (max-width: 720px) {
+  aside {
+    display: none;
+  }
+}
+
+@font-face {
+  font-family: 'iconfont';
+  src: url('iconfont.eot');
+}
+```
+
+Then compile and converted to:
+
+```css
+/* styles/app.css */
+
+body {
+  background-color: var(--body-background-color-c4ba, #0d1117);
+}
+
+button {
+  border: 1px solid var(--button-border-color-0c8c, #30363d);
+}
+```
+
+```css
+/* themes/dark.css */
+
+:root[data-theme='dark'] {
+  --body-background-color-c4ba: #0d1117;
+  --button-border-color-0c8c: #30363d;
+}
+
+:root[data-theme='dark'] aside {
+  background-color: #161b22;
+}
+
+@media (max-width: 720px) {
+  :root[data-theme='dark'] aside {
+    display: none;
+  }
+}
+```
+
+```html
+<style type="text/css">
+  /* with the theme switch automatically injected into the page */
+  @font-face {
+    font-family: 'iconfont';
+    src: url('iconfont.eot');
+  }
+</style>
+```
+
+You can create new themes without changing the previous code.
+
+```less
+/* themes/light.less */
+
+@body-background-color: #fff;
+@button-border-color: #fff;
+
+aside {
+  background-color: #fff;
+}
+
+@media (max-width: 720px) {
+  aside {
+    display: none;
+  }
+}
+```
+
+Compile and converted to:
+
+```css
+/* themes/light.css */
+
+:root[data-theme='light'] {
+  --body-background-color-c4ba: #fff;
+  --button-border-color-0c8c: #fff;
+}
+
+:root[data-theme='light'] aside {
+  background-color: #fff;
+}
+
+@media (max-width: 720px) {
+  :root[data-theme='light'] aside {
+    display: none;
+  }
+}
+```
+
+You can use the theme management component out of the box.
+
+```tsx
+import { useCallback } from 'react'
+import { useTheme } from '@ices/theme/react'
+
+export function ToggleTheme() {
+  // use react hook to manage theme
+  const [theme, themeList, changeTheme] = useTheme()
+  const handleChange = useCallback((event) => changeTheme(event.target.value), [changeTheme])
+  return (
+    <select value={theme} onChange={handleChange}>
+      {themeList.map((theme) => (
+        <option value={theme} key={theme}>
+          {theme}
+        </option>
+      ))}
+    </select>
+  )
+}
+```
+
+Not use some lib:
+
+```ts
+import themeManager from '@ices/theme'
+const themeList = themeManager.themeList
+const currentTheme = themeManager.theme
+
+// add event listener
+themeManager.on('change', ({ data: { current, previous } }) => {
+  // do something
+})
+const unsubscribe = themeManager.subscribe('change', ({ data: { current, previous } }) => {
+  // do something
+})
+
+// use property setter to change theme
+themeManager.theme = themeList[1]
+// use promise when theme changed
+themeManager.changeTheme(themeList[1]).then((theme) => {
+  // do something
+})
+```
+
+You can publish the theme file as separated css file when set the <code>extract</code> option to <code>true</code>.
+
+You can use <code>less</code>、<code>scss</code>、<code>sass</code> or standard <code>css custom properties</code> to declare the theme variables.
+
+### With that, what do you need to do?
+
+Just add the <code>@ices/theme-webpack-plugin</code> to you webpack plugin configuration, and set the theme filepath of glob patterns.
+
+If you remove this plug-in in the future, your code will not be affected, but you will not be able to switch themes.
+
 ## Usage
 
 ```shell
@@ -98,9 +379,9 @@ export default {
 </script>
 ```
 
-## Demo
+## Playground
 
-[LiveDemo](https://codesandbox.io/s/ices-theme-webpack-plugin-examples-lqg3r)
+[Codesandbox](https://codesandbox.io/s/ices-theme-webpack-plugin-examples-lqg3r)
 
 ## Support
 
@@ -109,7 +390,7 @@ export default {
 - SCSS
 - SASS
 - LESS
-- CSS Custom property
+- CSS Custom Property
 
 ### build tools
 
@@ -121,6 +402,12 @@ export default {
 
 - v4+
 - v5+
+
+### others
+
+- Relative url rewrite
+- Publish as a separate theme style file
+- Theme component out of the box
 
 ## Options
 
@@ -226,7 +513,7 @@ export interface PluginOptions {
 }
 ```
 
-### 中文选项说明
+### 选项说明
 
 ```ts
 export interface PluginOptions {
