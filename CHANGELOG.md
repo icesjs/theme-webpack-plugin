@@ -1,3 +1,9 @@
+# [1.4.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.4.0) (2021-03-15)
+
+### Bug Fixes
+
+- the problem that the variable in the function may be replaced incorrectly ([e67e8fd](https://github.com/icesjs/theme-webpack-plugin/commit/e67e8fde08ad3c37097cd1a63ec58feade97f0dc))
+
 ## [1.3.6](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.3.6) (2021-03-04)
 
 ### Bug Fixes
