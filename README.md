@@ -2,6 +2,10 @@
 
 ## A library for process themes.
 
+## Playground
+
+[Codesandbox](https://codesandbox.io/s/ices-theme-webpack-plugin-examples-lqg3r)
+
 ## How does it work?
 
 ### Don't use build plugin
@@ -378,10 +382,6 @@ export default {
 }
 </script>
 ```
-
-## Playground
-
-[Codesandbox](https://codesandbox.io/s/ices-theme-webpack-plugin-examples-lqg3r)
 
 ## Support
 

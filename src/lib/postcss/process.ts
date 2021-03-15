@@ -51,6 +51,7 @@ interface DeclProcessorVarsContainer extends VariablesContainer {
 interface ProcessDeclValueWordOptions extends DeclValueProcessorOptions {
   node: WordNode
   isRootDecl: boolean
+  isFunction: boolean
   isVarFunction: boolean
   isDefault: boolean
   hasDefault: boolean
@@ -124,7 +125,7 @@ export function getDeclProcessor(options: DeclValueProcessorOptions) {
       return
     }
 
-    decl.value = processor(decl.value, isTopRootDecl(decl), false, false, false)
+    decl.value = processor(decl.value, isTopRootDecl(decl))
 
     if (isTopScopeVariable(decl, regExps[1], regExps[2])) {
       const ident = makeVariableIdent(decl.prop)
@@ -145,9 +146,10 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
   const processor = (
     value: string,
     isRootDecl: boolean,
-    isVarFunction: boolean,
-    isDefault: boolean,
-    hasDefault: boolean
+    isFunction = false,
+    isVarFunction = false,
+    isDefault = false,
+    hasDefault = false
   ) => {
     if (!value) {
       return ''
@@ -156,13 +158,14 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
 
     const iterator = (
       node: ValueNode,
+      isFunction: boolean,
       isVarFunction: boolean,
       isDefault: boolean,
       hasDefault: boolean
     ) => {
-      if (node.type === 'function' && node.value === 'var') {
+      if (node.type === 'function') {
         valueParser.walk(node.nodes, (child, index, nodes) =>
-          iterator(child, true, index > 0, nodes.length > 1)
+          iterator(child, true, node.value === 'var', index > 0, nodes.length > 1)
         )
         return false
       } else if (node.type === 'word' && regExps[0].test(node.value)) {
@@ -170,6 +173,7 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
           processDeclValueWord({
             ...options,
             node,
+            isFunction,
             isVarFunction,
             isDefault,
             hasDefault,
@@ -183,7 +187,7 @@ function getDeclValueProcessor(options: DeclValueProcessorOptions) {
     }
 
     const parsed = valueParser(trimInterpolation(value, syntax))
-    parsed.walk((node) => iterator(node, isVarFunction, isDefault, hasDefault))
+    parsed.walk((node) => iterator(node, isFunction, isVarFunction, isDefault, hasDefault))
 
     return changed ? valueParser.stringify(parsed.nodes) : value
   }
@@ -215,11 +219,53 @@ function getDeclVarsDefaultValue(
   return defaultValue
 }
 
+// 获取更新后的节点值
+function getUpdatedDeclWordNodeValue(
+  options: ExtendType<
+    ProcessDeclValueWordOptions,
+    { ident: string; processedValue: string; defaultValue: string }
+  >
+) {
+  const {
+    ident,
+    isFunction,
+    isVarFunction,
+    hasDefault,
+    isDefault,
+    processedValue,
+    defaultValue,
+  } = options
+
+  // value
+  if (!isFunction) {
+    return `var(${ident}${defaultValue ? `, ${defaultValue}` : ''})`
+  }
+
+  // func(value)
+  if (!isVarFunction) {
+    return processedValue
+  }
+
+  // var(--variable, defaultValue)
+  let value
+  if (hasDefault) {
+    if (isDefault) {
+      value = processedValue
+    } else {
+      value = ident
+    }
+  } else {
+    value = `${ident}${defaultValue ? `, ${defaultValue}` : ''}`
+  }
+  return value
+}
+
 // 消息 theme-prop-vars
 function processDeclValueWord(options: ProcessDeclValueWordOptions) {
   const {
     node,
     isRootDecl,
+    isFunction,
     isVarFunction,
     isDefault,
     hasDefault,
@@ -241,7 +287,14 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
     }
     changed = true
     // 递归处理引用值
-    node.value = processor(refVars.originalValue, isRootDecl, isVarFunction, isDefault, hasDefault)
+    node.value = processor(
+      refVars.originalValue,
+      isRootDecl,
+      isFunction,
+      isVarFunction,
+      isDefault,
+      hasDefault
+    )
     //
   } else if (determineCanExtractToRootDeclByIdent(ident, onlyColor, context, variables)) {
     //
@@ -276,19 +329,7 @@ function processDeclValueWord(options: ProcessDeclValueWordOptions) {
     const defaultValue = getDeclVarsDefaultValue({ ...options, value, processedValue })
 
     // 更新属性声明的值（修改原样式文件）
-    if (isVarFunction) {
-      if (hasDefault) {
-        if (isDefault) {
-          node.value = processedValue
-        } else {
-          node.value = ident
-        }
-      } else {
-        node.value = `${ident}${defaultValue ? `, ${defaultValue}` : ''}`
-      }
-    } else {
-      node.value = `var(${ident}${defaultValue ? `, ${defaultValue}` : ''})`
-    }
+    node.value = getUpdatedDeclWordNodeValue({ ...options, ident, processedValue, defaultValue })
 
     changed = true
   } else {
