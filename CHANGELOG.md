@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.0...v1.4.1) (2021-03-15)
+
+### Features
+
+- optimize variable reference ([9d4c373](https://github.com/icesjs/theme-webpack-plugin/commit/9d4c37398deb5f8cc573ec0fe300c3a5762268a5))
+
 # [1.4.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.3.2...v1.4.0) (2021-03-15)
 
 ### Bug Fixes
