@@ -96,12 +96,26 @@ export function toVarsDict<T extends VarsDictItem>(
 // 获取引用类型变量
 export function getReferenceVars(contextDict: VarsDict, variablesDict: VarsDict) {
   const refs = new Map<string, RefVarsDictItem>()
+  const isRefVar = (ident: string) => {
+    if (variablesDict.has(ident)) {
+      // 这是一个导入的变量
+      return true
+    }
+    // 非导入变量
+    if (contextDict.has(ident)) {
+      // 这是一个本地变量
+      const { dependencies } = contextDict.get(ident)!
+      // 如果本地变量存在依赖，继续检查其依赖
+      // 因为变量解析时，已经排除了循环引用的情况，这里不会有无限循环发生的可能
+      if (dependencies?.size && [...dependencies.keys()].some(isRefVar)) {
+        return true
+      }
+    }
+    return false
+  }
   for (const { ident, dependencies, ...rest } of contextDict.values()) {
-    // 如果本地变量的依赖变量全部来自主题变量，则认为该变量实际是对主题变量的间接引用
-    if (
-      dependencies?.size &&
-      ![...dependencies.keys()].some((ident) => !variablesDict.has(ident))
-    ) {
+    // 如果依赖主题变量，则认为该变量实际是对主题变量的间接引用
+    if (dependencies?.size && [...dependencies.keys()].some(isRefVar)) {
       refs.set(ident, { ident, dependencies, ...rest })
     }
   }

@@ -125,15 +125,23 @@ export function getDeclProcessor(options: DeclValueProcessorOptions) {
       return
     }
 
-    decl.value = processor(decl.value, isTopRootDecl(decl))
+    let value
+    const originalValue = decl.value
+    const isRootDecl = isTopRootDecl(decl)
 
     if (isTopScopeVariable(decl, regExps[1], regExps[2])) {
-      const ident = makeVariableIdent(decl.prop)
-      if (variables.has(ident)) {
-        variables.get(ident)!.originalValue = decl.value
+      value = isRootDecl ? processor(originalValue, isRootDecl) : originalValue
+      if (isRootDecl) {
+        const ident = makeVariableIdent(decl.prop)
+        if (variables.has(ident)) {
+          variables.get(ident)!.originalValue = value
+        }
       }
+    } else {
+      value = processor(originalValue, isRootDecl)
     }
 
+    decl.value = value
     if (regExps[2].test(decl.prop)) {
       decl.value = fixScssCustomizePropertyBug(decl.value, syntax, regExps)
     }
