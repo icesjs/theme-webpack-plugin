@@ -1,6 +1,7 @@
 import * as path from 'path'
 import { format } from 'util'
-import { Result } from 'postcss'
+import postcss, { Result } from 'postcss'
+import cssnano from 'cssnano'
 import { getOptions, interpolateName } from 'loader-utils'
 import { ValidPluginOptions } from '../options'
 import { LoaderContext, PluginLoader } from '../ThemePlugin'
@@ -165,12 +166,12 @@ function optimizeCssContent(content: string, resourcePath: string) {
   if (process.env.THEME_VARS_IDENT_MODE === 'development') {
     return content
   }
-  return require('cssnano')
-    .process(
-      content,
-      { from: resourcePath, map: false, parser: require('postcss-safe-parser') },
-      { preset: ['default', { minifyFontValues: { removeQuotes: false } }] }
-    )
+  return postcss([cssnano({ preset: ['default', { minifyFontValues: { removeQuotes: false } }] })])
+    .process(content, {
+      from: resourcePath,
+      map: false,
+      parser: require('postcss-safe-parser'),
+    })
     .then((result: Result) => result.css)
 }
 
