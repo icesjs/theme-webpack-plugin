@@ -141,8 +141,8 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
 
     this.themeFiles.clear()
 
-    const imports = []
-    const themes = []
+    const imports: string[] = []
+    const themes: string[] = []
     const hotUpdateResources: { name: string; path: string; style: string }[] = []
     const runtime = JSON.stringify(
       path.join(__dirname, `lib/${extract ? 'runtimeAsync' : 'runtime'}`)
@@ -197,7 +197,7 @@ ${esModule ? 'export default themes' : 'module.exports = themes'}\n`
           : ident
         : JSON.stringify('')
       const stylePath = extract ? JSON.stringify('') : ident
-      themes.push(
+      themes[isDefault ? 'unshift' : 'push'](
         `${''.padEnd(4)}{ name: ${JSON.stringify(name)}, path: ${themePath}, style: ${stylePath} }`
       )
     }

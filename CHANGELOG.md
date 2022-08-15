@@ -1,3 +1,5 @@
+# [2.0.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.1...v2.0.0) (2022-08-14)
+
 ## [1.4.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.0...v1.4.1) (2021-03-15)
 
 ### Features

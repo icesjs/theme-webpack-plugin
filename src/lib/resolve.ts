@@ -5,7 +5,7 @@ import { containFile, escapeRegExpChar, isStylesheet } from './utils'
 type Module = NodeJS.Module
 type LoaderContext = import('webpack').loader.LoaderContext
 
-const matchModuleImport = /^~(?:[^/]+|[^/]+\/|@[^/]+[/][^/]+|@[^/]+\/?|@[^/]+[/][^/]+\/)$/
+const matchModuleImport = /^~(?:[^/]+|[^/]+\/|@[^/]+\/[^/]+|@[^/]+\/?|@[^/]+\/[^/]+\/)$/
 
 export async function resolveStyle(
   resolver: LoaderContext['resolve'],

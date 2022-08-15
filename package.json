@@ -1,6 +1,6 @@
 {
   "name": "@ices/theme-webpack-plugin",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A library for process themes",
   "main": "dist/index.js",
   "types": "types/index.d.ts",
@@ -22,7 +22,7 @@
     "is-color": "^1.0.2",
     "jsdom": "^16.4.0",
     "loader-utils": "^2.0.0",
-    "postcss": "^8.2.4",
+    "postcss": "8.2.4",
     "postcss-import": "^14.0.0",
     "postcss-less": "^4.0.0",
     "postcss-safe-parser": "^5.0.2",
@@ -46,7 +46,7 @@
     "conventional-changelog-cli": "^2.1.1",
     "husky": "^4.3.7",
     "lint-staged": "^10.5.3",
-    "prettier": "^2.2.1",
+    "prettier": "2.2.1",
     "rimraf": "^3.0.2",
     "typescript": "4.1.3"
   },
