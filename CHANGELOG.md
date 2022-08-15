@@ -1,3 +1,13 @@
+## [2.0.3](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.1...v2.0.3) (2022-08-15)
+
+### Bug Fixes
+
+- compatible with cssnano v5. ([bc08062](https://github.com/icesjs/theme-webpack-plugin/commit/bc0806277a94c8633e7d2755e86850ee1a949016))
+
+### Features
+
+- sort the theme list with "default" ([a941754](https://github.com/icesjs/theme-webpack-plugin/commit/a941754c74bd7f463374be43d0c5be803f3c48f8))
+
 ## [2.0.2](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.1...v2.0.2) (2022-08-15)
 
 - update dependencies.
