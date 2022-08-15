@@ -907,10 +907,10 @@
   resolved "https://registry.npmmirror.com/@hutson/parse-repository-url/-/parse-repository-url-3.0.2.tgz#98c23c950a3d9b6c8f0daed06da6c3af06981340"
   integrity sha512-H9XAx3hc0BQHY6l+IFSWHDySypcXsvsuLhgYLUGywmJ5pswRVQJUHpOsobnLYp2ZUaUlKiKDrgWWhosOwAEM8Q==
 
-"@ices/use-loader@^1.4.0":
-  version "1.4.0"
-  resolved "https://registry.npmmirror.com/@ices/use-loader/-/use-loader-1.4.0.tgz#9babb98b33aeda8bf2a1710d0fdc9b2212fa2202"
-  integrity sha512-vJyWESYJdEeoxW8EpmndLYLz66UbxwqCsAGclHCTrtlsTt1Gogbfg6Re2cqOTm6AFNcTJy1YKKbZ+ayGseIRow==
+"@ices/use-loader@^2.0.0":
+  version "2.0.0"
+  resolved "https://registry.npmmirror.com/@ices/use-loader/-/use-loader-2.0.0.tgz#88bed18409d2776c3dcc412380d8d24f96bb40f7"
+  integrity sha512-66YyHg2Bx6YqgI24rq5LOtG2p5IhcjAUVSVbQPFOuVlRGU8q2gwZdsPFegwu2fPrgj8jyQHAkDyDvRdxnuGgNA==
 
 "@jridgewell/gen-mapping@^0.1.0":
   version "0.1.1"

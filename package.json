@@ -1,6 +1,6 @@
 {
   "name": "@ices/theme-webpack-plugin",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "A library for process themes",
   "main": "dist/index.js",
   "types": "types/index.d.ts",
@@ -14,7 +14,7 @@
     "@babel/core": "^7.12.16",
     "@babel/preset-env": "^7.12.16",
     "@babel/types": "^7.12.13",
-    "@ices/use-loader": "^1.4.0",
+    "@ices/use-loader": "^2.0.0",
     "@types/jsdom": "^16.2.6",
     "cssnano": "^5.1.13",
     "file-loader": "^6.2.0",
@@ -33,7 +33,7 @@
     "tslib": "^2.4.0"
   },
   "peerDependencies": {
-    "@ices/theme": ">=2.0.0",
+    "@ices/theme": ">=2.0.1",
     "webpack": "^4.40.0 || ^5.0.0"
   },
   "devDependencies": {

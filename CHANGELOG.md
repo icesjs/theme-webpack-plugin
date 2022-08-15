@@ -1,3 +1,9 @@
+## [2.0.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.1...v2.0.1) (2022-08-15)
+
+### Features
+
+- sort the theme list with "default" ([a941754](https://github.com/icesjs/theme-webpack-plugin/commit/a941754c74bd7f463374be43d0c5be803f3c48f8))
+
 # [2.0.0](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.1...v2.0.0) (2022-08-14)
 
 ## [1.4.1](https://github.com/icesjs/theme-webpack-plugin/compare/v1.4.0...v1.4.1) (2021-03-15)

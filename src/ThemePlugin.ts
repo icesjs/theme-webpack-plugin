@@ -40,6 +40,7 @@ export interface LoaderContext extends WebpackLoaderContext {
     sourceMap?: Parameters<WebpackLoaderCallback>[2],
     meta?: any
   ): ReturnType<WebpackLoaderCallback>
+
   async(): LoaderContext['callback'] | undefined
 }
 
@@ -50,6 +51,7 @@ export interface PluginLoader {
     map: Parameters<WebpackLoader>[1],
     meta: any
   ): ReturnType<WebpackLoader>
+
   pitch?: WebpackLoader['pitch']
   raw?: WebpackLoader['raw']
   filepath: string
@@ -196,7 +198,7 @@ class ThemePlugin implements WebpackPlugin {
     const loaders = findLoader(
       compilerOptions,
       ({ siblings, index, isUseItem, rule, name }) => {
-        if (name !== 'file-loader' && matchRule(rule)) {
+        if (name !== 'file-loader' && name !== 'source-map-loader' && matchRule(rule)) {
           return !isUseItem || index === siblings.length - 1
         }
         return false
@@ -226,10 +228,8 @@ class ThemePlugin implements WebpackPlugin {
 
   // 变量loader用于抽离样式文件中与主题相关的样式属性变量
   private applyVarsLoaders(compilerOptions: Configuration) {
-    this.applyLoaders(
-      compilerOptions,
-      (rule) => isCssRule(rule),
-      (rule, parent) => this.getThemeVarsLoaders(rule, parent)
+    this.applyLoaders(compilerOptions, isCssRule, (rule, parent) =>
+      this.getThemeVarsLoaders(rule, parent)
     )
     // 重设css-loader的importLoaders值
     for (const { siblings, index } of findLoader(compilerOptions, 'css-loader')) {
