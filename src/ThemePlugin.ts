@@ -169,7 +169,10 @@ class ThemePlugin implements WebpackPlugin {
   }
 
   // 检查是否导入了主题模块
-  private checkImportedThemes(modules: CompilationModule[], themeModule: ThemeModule) {
+  private checkImportedThemes(
+    modules: CompilationModule[] | Set<CompilationModule>,
+    themeModule: ThemeModule
+  ) {
     const { themeFiles } = themeModule
     if (!this.logger || !themeFiles.size) {
       return

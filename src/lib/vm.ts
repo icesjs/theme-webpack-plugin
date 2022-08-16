@@ -1,10 +1,11 @@
 import vm, { Context } from 'vm'
+import { pathToFileURL } from 'url'
 import * as path from 'path'
 import * as babel from '@babel/core'
 import { PluginItem } from '@babel/core'
 import { DOMWindow } from 'jsdom'
 import { getHashDigest } from 'loader-utils'
-import { toAsyncFunction, toCallExpression } from './asyncConverter'
+import { replaceImportMeta, toAsyncFunction, toCallExpression } from './asyncConverter'
 import { ensureFileExtension, getQueryString, hasOwnProperty, trimUndefined } from './utils'
 
 type LoaderContext = import('webpack').loader.LoaderContext
@@ -27,6 +28,10 @@ export type AsyncWebpackRequire = (this: WebpackModuleContext, request: string) 
 
 export type WebpackPublicPath = string | ((file: string) => Promise<string>)
 
+export interface ImportMeta {
+  url?: string
+}
+
 export interface WebpackModuleContext {
   module: VirtualModule
   exports: VirtualModuleExports
@@ -35,6 +40,7 @@ export interface WebpackModuleContext {
   readonly __resourceQuery: string
   readonly __webpack_require__: AsyncWebpackRequire
   readonly __webpack_public_path__: WebpackPublicPath
+  readonly __import_meta__: ImportMeta
 }
 
 interface VirtualWebpackModule extends WebpackModuleContext, Context, DOMWindow {}
@@ -145,6 +151,9 @@ function getTransformPlugins(webpackModule?: VirtualWebpackModule) {
       plugins.unshift(toCallExpression('__webpack_public_path__', [module?.id || '']))
     }
   }
+  // 支持 es2020 新添加的import.meta
+  // 引擎层面 vm.SourceTextModule 支持设置该meta，但还处于实验阶段
+  plugins.push(replaceImportMeta('__import_meta__'))
   return plugins
 }
 
@@ -234,11 +243,11 @@ function defineVirtualModule(loaderContext: LoaderContext, id: string) {
   const module: VirtualModule =
     getModuleFromCache(loaderContext, id) ||
     Object.defineProperties(
-      {
+      Object.assign(Object.create(null), {
         loaded: false,
         promise: null,
         exports: {},
-      },
+      }),
       // 下面属性只读
       {
         id: { value: path.normalize(id || '') },
@@ -269,6 +278,10 @@ function createModuleContext(
       __non_webpack_require__: require,
       __resourceQuery: getQueryString(moduleId),
       __webpack_require__: (req: string) => webpackRequireAsync.call(webpackModuleContext, req),
+      // import.meta
+      __import_meta__: Object.assign(Object.create(null), {
+        url: pathToFileURL(moduleId).toString(),
+      }),
     },
     // 调用方自定义的上下文属性
     trimUndefined<WebpackModuleContext>(moduleContext),

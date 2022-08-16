@@ -119,3 +119,14 @@ export function toCallExpression(name: string, args: string[]) {
     },
   } as PluginObj
 }
+
+// 处理 import.meta 语句
+export function replaceImportMeta(identifierName: string) {
+  return {
+    visitor: {
+      MetaProperty(meta) {
+        meta.replaceWith(types.identifier(identifierName))
+      },
+    },
+  } as PluginObj
+}
