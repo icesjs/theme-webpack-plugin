@@ -152,7 +152,16 @@ class ThemePlugin implements WebpackPlugin {
     }
     const syntax = typeof res === 'boolean' ? 'auto' : res
     const options = [`syntax=${encodeURIComponent(syntax)}`]
-    module.request = `!!${loaderPath}?${options.join('&')}!${request}`
+    // 兼容 mini-css-extract-plugin
+    // vue-cli4 生产环境默认开启css extract，插件loader需要在extract-css-loader之前执行，否则会报错
+    const arr = request.split('.webpack[javascript/auto]!=!')
+    if (arr.length > 1) {
+      debugger
+      arr[1] = `!!${loaderPath}?${options.join('&')}${arr[1]}`
+      module.request = arr.join('.webpack[javascript/auto]!=!')
+    } else {
+      module.request = `!!${loaderPath}?${options.join('&')}!${request}`
+    }
   }
 
   // 注入插件方法到内部loaders
